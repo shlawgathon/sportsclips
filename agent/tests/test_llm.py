@@ -807,7 +807,7 @@ class TestEndToEndGeminiAPI:
     @pytest.mark.asyncio
     async def test_e2e_agent_without_api_key_raises_error(self):
         """Test that agent without API key raises appropriate error."""
-        agent = GeminiAgent(api_key=None, model_name="gemini-1.5-flash")
+        agent = GeminiAgent(api_key=None, model_name="gemini-2.5-flash")
         # Clear the model to simulate no API key
         agent._model = None
 
