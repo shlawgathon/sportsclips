@@ -15,6 +15,12 @@ application {
     mainClass = "io.ktor.server.netty.EngineMain"
 }
 
+ktor {
+    fatJar {
+        archiveFileName.set("shlawg.jar")
+    }
+}
+
 dependencies {
     implementation("org.openfolder:kotlin-asyncapi-ktor:3.1.2")
     implementation("io.ktor:ktor-server-core")
