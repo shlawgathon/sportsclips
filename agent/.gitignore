@@ -51,3 +51,9 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+
+# Test output
+video_output
+
+# cookies file
+cookies.txt
