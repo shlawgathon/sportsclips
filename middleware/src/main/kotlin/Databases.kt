@@ -22,21 +22,76 @@ fun Application.configureDatabases()
     // TikTok-style services and helpers
     val userService = UserService(mongoDatabase)
     val liveService = LiveVideoService(mongoDatabase)
+    val liveGameService = LiveGameService(mongoDatabase)
     val clipService = ClipService(mongoDatabase)
     val commentService = CommentService(mongoDatabase)
     val likeService = LikeService(mongoDatabase)
+    val trackedVideoService = TrackedVideoService(mongoDatabase)
     val s3 = S3Helper(this)
+    val s3u = gg.growly.services.S3Utility(
+        bucketName = environment.config.tryGetString("aws.s3.bucket") ?: "sportsclips-clip-store",
+        region = environment.config.tryGetString("aws.s3.region")
+    )
     val voyage = VoyageClient(this)
+    val youtube = gg.growly.services.YouTubeKtorService(environment.config.tryGetString("youtube.apiKey") ?: "")
+    val agent = gg.growly.services.AgentClient(this)
+
+    // ========== Periodic YouTube Top Games Collector ==========
+    // Every minute, query YouTube for top live videos per sport and catalog them.
+    // Keeps LiveGame and TrackedVideo collections fresh with top 10 items per sport.
+    kotlinx.coroutines.launch {
+        try {
+            while (kotlinx.coroutines.isActive) {
+                try {
+                    val sports = Sport.values().filter { it != Sport.All }
+                    for (sp in sports) {
+                        try {
+                            val resp = youtube.searchLiveSports("${'$'}{sp.name} live", 10)
+                            resp.items.forEach { item ->
+                                val videoId = item.id.videoId
+                                val title = item.snippet.title
+                                val sourceUrl = "https://www.youtube.com/watch?v=${'$'}videoId"
+                                // Ensure game exists/upsert
+                                try { liveGameService.create(LiveGame(gameId = videoId, name = title, sport = sp)) } catch (_: Exception) {}
+                                // Track video in catalog as Queued if new
+                                try {
+                                    trackedVideoService.upsert(
+                                        TrackedVideo(
+                                            youtubeVideoId = videoId,
+                                            sourceUrl = sourceUrl,
+                                            sport = sp,
+                                            gameName = title,
+                                            status = ProcessingStatus.Queued
+                                        )
+                                    )
+                                } catch (_: Exception) {}
+                            }
+                        } catch (e: Exception) {
+                            // swallow sport-specific errors to keep loop healthy
+                        }
+                    }
+                } catch (_: Exception) {
+                    // ignore outer loop errors
+                }
+                // Sleep for one minute
+                kotlinx.coroutines.delay(60_000)
+            }
+        } catch (_: Exception) {
+            // exiting scheduler
+        }
+    }
 
     @Serializable data class RegisterRequest(val username: String, val password: String, val profilePictureBase64: String? = null)
     @Serializable data class LoginRequest(val username: String, val password: String)
     @Serializable data class CreateLiveRequest(val title: String, val description: String, val streamUrl: String, val isLive: Boolean = true)
     @Serializable data class PresignUploadRequest(val key: String, val contentType: String? = null)
-    @Serializable data class CreateClipRequest(val s3Key: String, val title: String, val description: String)
+    @Serializable data class CreateClipRequest(val s3Key: String, val title: String, val description: String, val gameId: String, val sport: Sport)
+    @Serializable data class CreateGameRequest(val gameId: String, val name: String, val sport: Sport)
     @Serializable data class CommentRequest(val text: String)
 
     // Serializable wrappers for responses
     @Serializable data class LiveListItem(val id: String, val live: LiveVideo)
+    @Serializable data class ClipListItem(val id: String, val clip: Clip)
     @Serializable data class CommentItem(val id: String, val comment: Comment)
     @Serializable data class RecommendationItem(val id: String, val score: Double, val clip: Clip)
 
@@ -85,24 +140,50 @@ fun Application.configureDatabases()
                 call.respond(HttpStatusCode.Created, mapOf("id" to id))
             }
 
-            // ========== Clips ==========
-            post("/clips/presign-upload") {
-                val req = call.receive<PresignUploadRequest>()
-                val url = s3.presignUpload(req.key, req.contentType)
-                call.respond(mapOf("url" to url, "key" to req.key))
+            // ========== Games ==========
+            post("/games") {
+                val body = call.receive<CreateGameRequest>()
+                val id = liveGameService.create(LiveGame(gameId = body.gameId, name = body.name, sport = body.sport))
+                call.respond(HttpStatusCode.Created, mapOf("id" to id))
             }
+            get("/games") {
+                val games = liveGameService.listAll().map { (id, game) -> mapOf("id" to id, "game" to game) }
+                call.respond(games)
+            }
+            get("/games/{gameId}") {
+                val gid = call.parameters["gameId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val game = liveGameService.getByGameId(gid) ?: return@get call.respond(HttpStatusCode.NotFound)
+                call.respond(mapOf("id" to game.first, "game" to game.second))
+            }
+
+            // ========== Clips ==========
+            // Listing endpoints
+            get("/clips") {
+                val items = clipService.listAll().map { (id, clip) -> ClipListItem(id, clip) }
+                call.respond(items)
+            }
+            get("/clips/by-game/{gameId}") {
+                val gid = call.parameters["gameId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val items = clipService.listByGame(gid).map { (id, clip) -> ClipListItem(id, clip) }
+                call.respond(items)
+            }
+            get("/clips/by-sport/{sport}") {
+                val sportParam = call.parameters["sport"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val sport = try { Sport.valueOf(sportParam) } catch (_: Exception) {
+                    // try case-insensitive
+                    Sport.values().firstOrNull { it.name.equals(sportParam, ignoreCase = true) }
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid sport"))
+                }
+                val items = clipService.listBySport(sport).map { (id, clip) -> ClipListItem(id, clip) }
+                call.respond(items)
+            }
+
+            // Removed user clip upload endpoints in favor of automated ingestion.
             get("/clips/presign-download/{id}") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val clip = clipService.get(id) ?: return@get call.respond(HttpStatusCode.NotFound)
                 val url = s3.directDownloadUrl(clip.s3Key)
                 call.respond(mapOf("url" to url))
-            }
-            post("/clips") {
-                val body = call.receive<CreateClipRequest>()
-                val text = "${body.title}\n${body.description}"
-                val embedding = try { voyage.embed(text) } catch (_: Exception) { null }
-                val id = clipService.create(Clip(s3Key = body.s3Key, title = body.title, description = body.description, embedding = embedding))
-                call.respond(HttpStatusCode.Created, mapOf("id" to id))
             }
             get("/clips/{id}") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
@@ -133,6 +214,68 @@ fun Application.configureDatabases()
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val comments = commentService.listByClip(id).map { (cid, c) -> CommentItem(id = cid, comment = c) }
                 call.respond(comments)
+            }
+
+            // ========== Ingestion ==========
+            post("/ingest/youtube") {
+                val sportParam = call.request.queryParameters["sport"] ?: "All"
+                val sport = try { Sport.valueOf(sportParam) } catch (_: Exception) {
+                    Sport.values().firstOrNull { it.name.equals(sportParam, ignoreCase = true) } ?: Sport.All
+                }
+
+                // Search YouTube live for this sport and pick one video
+                val query = if (sport == Sport.All) "sports live" else "${sport.name} live"
+                val results = try { youtube.searchLiveSports(query, 1) } catch (e: Exception) {
+                    return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "YouTube search failed")))
+                }
+                val item = results.items.firstOrNull() ?: return@post call.respond(HttpStatusCode.NotFound, mapOf("error" to "No live videos found"))
+                val videoId = item.id.videoId
+                val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
+                val gameName = item.snippet.title
+
+                // Ensure only one processing at a time
+                val existing = trackedVideoService.getByYouTubeId(videoId)
+                if (existing?.second?.status == ProcessingStatus.Processing) {
+                    return@post call.respond(HttpStatusCode.Conflict, mapOf("error" to "Video already processing"))
+                }
+
+                // Ensure a game exists for this event
+                liveGameService.create(LiveGame(gameId = videoId, name = gameName, sport = sport))
+
+                // Upsert catalog and set to Processing
+                trackedVideoService.upsert(TrackedVideo(youtubeVideoId = videoId, sourceUrl = sourceUrl, sport = sport, gameName = gameName, status = ProcessingStatus.Processing))
+
+                // Stream snippets from Agent and persist clips
+                var created = 0
+                try {
+                    agent.processVideo(sourceUrl, isLive = true) { bytes, title, description ->
+                        val key = "clips/$videoId/${System.currentTimeMillis()}.mp4"
+                        try { s3u.uploadBytes(bytes, key, contentType = "video/mp4") } catch (_: Exception) {}
+                        val text = listOfNotNull(title, description).joinToString("\n")
+                        val embedding = if (text.isNotBlank()) try { voyage.embed(text) } catch (_: Exception) { null } else null
+                        clipService.create(
+                            Clip(
+                                s3Key = key,
+                                title = title ?: gameName,
+                                description = description ?: "",
+                                gameId = videoId,
+                                sport = sport,
+                                embedding = embedding
+                            )
+                        )
+                        created++
+                    }
+                    trackedVideoService.setStatus(videoId, ProcessingStatus.Completed)
+                } catch (_: Exception) {
+                    trackedVideoService.setStatus(videoId, ProcessingStatus.Error)
+                }
+
+                call.respond(HttpStatusCode.Accepted, mapOf("videoId" to videoId, "createdClips" to created))
+            }
+
+            get("/catalog") {
+                val items = trackedVideoService.listAll().map { (id, tv) -> mapOf("id" to id, "tracked" to tv) }
+                call.respond(items)
             }
 
             // ========== Recommendations ==========

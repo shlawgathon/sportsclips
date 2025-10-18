@@ -333,3 +333,70 @@ Notes and best practices:
 - If you front your middleware with HTTPS and a domain, set proper cookie attributes (Secure, SameSite, Path) if needed.
 - The included S3PresignHelper currently returns deterministic HTTPS paths; replace with AWS S3 presign if you need time-bound credentials and private buckets.
 - All JSON models are Codable-compatible; see app/sportsclips/APIClient.swift for full model definitions and helper methods.
+
+
+## Updates: Games, Sports, and Clip Listings
+
+The API now supports registering live games, tagging clips with a Game ID and Sport, and listing clips by game or sport. The recommendation endpoints remain unchanged.
+
+### Sport enum
+Allowed values:
+- All
+- Football
+- Basketball
+- Soccer
+- Baseball
+- Tennis
+- Golf
+- Hockey
+- Boxing
+- MMA
+- Racing
+
+### LiveGame endpoints (authenticated)
+- POST /games
+  - Request: {"gameId": string, "name": string, "sport": Sport}
+  - Responses:
+    - 201 Created: {"id": string}
+- GET /games
+  - Response: 200 OK: [ {"id": string, "game": LiveGame} ]
+- GET /games/{gameId}
+  - Response: 200 OK: {"id": string, "game": LiveGame}; 400; 404
+
+LiveGame schema:
+{ "gameId": string, "name": string, "sport": Sport, "createdAt": epochSeconds }
+
+### Clip creation updated (authenticated)
+- POST /clips
+  - Request: {"s3Key": string, "title": string, "description": string, "gameId": string, "sport": Sport}
+  - Notes: The referenced gameId must be registered via POST /games first; otherwise 400 is returned.
+  - Response: 201 Created: {"id": string}
+
+### New clip listing endpoints (authenticated)
+- GET /clips
+  - Response: 200 OK: [ {"id": string, "clip": Clip} ]
+- GET /clips/by-game/{gameId}
+  - Response: 200 OK: [ {"id": string, "clip": Clip} ]; 400
+- GET /clips/by-sport/{sport}
+  - Response: 200 OK: [ {"id": string, "clip": Clip} ]; 400 on invalid sport
+  - Notes: {sport} matching is case-insensitive.
+
+Clip schema now includes game and sport:
+{ "s3Key": string, "title": string, "description": string, "gameId": string, "sport": Sport, "likesCount": int, "commentsCount": int, "embedding"?: [number], "createdAt": epochSeconds }
+
+### cURL examples
+Register a game:
+  curl -b cookies.txt -X POST http://localhost:8080/games \
+       -H 'Content-Type: application/json' \
+       -d '{"gameId":"G-1234","name":"El Classico","sport":"Soccer"}'
+
+Create a clip with game and sport:
+  curl -b cookies.txt -X POST http://localhost:8080/clips \
+       -H 'Content-Type: application/json' \
+       -d '{"s3Key":"uploads/clip1.mp4","title":"Goal","description":"Top bins","gameId":"G-1234","sport":"Soccer"}'
+
+List by game:
+  curl -b cookies.txt http://localhost:8080/clips/by-game/G-1234
+
+List by sport (case-insensitive):
+  curl -b cookies.txt http://localhost:8080/clips/by-sport/soccer
