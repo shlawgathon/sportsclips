@@ -22,28 +22,20 @@ class VideoPlayerManager: ObservableObject {
         let player = AVPlayer(url: URL(string: videoURL)!)
         players[videoURL] = player
         
-        // Configure player for seamless looping
-        player.actionAtItemEnd = .none
-        
-        // Set up notification for loop
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
-            queue: .main
-        ) { [weak player] _ in
-            player?.seek(to: .zero)
-            player?.play()
-        }
+        // Configure player for manual control (no auto-looping)
+        player.actionAtItemEnd = .pause
         
         return player
     }
     
     func playVideo(for videoURL: String) {
         let player = getPlayer(for: videoURL)
+        print("🎬 VideoPlayerManager playing video: \(videoURL)")
         player.play()
     }
-    
+
     func pauseVideo(for videoURL: String) {
+        print("🎬 VideoPlayerManager pausing video: \(videoURL)")
         players[videoURL]?.pause()
     }
     
@@ -51,6 +43,33 @@ class VideoPlayerManager: ObservableObject {
         for player in players.values {
             player.pause()
         }
+    }
+    
+    func seekVideo(for videoURL: String, to time: Double) {
+        guard let player = players[videoURL] else { 
+            print("🎬 Seek failed: No player found for \(videoURL)")
+            return 
+        }
+        let cmTime = CMTimeMakeWithSeconds(time, preferredTimescale: 600)
+        print("🎬 VideoPlayerManager seeking to: \(time) seconds")
+        player.seek(to: cmTime)
+    }
+    
+    func getCurrentTime(for videoURL: String) -> Double {
+        guard let player = players[videoURL] else { return 0.0 }
+        return player.currentTime().seconds
+    }
+    
+    func isPlaying(for videoURL: String) -> Bool {
+        guard let player = players[videoURL] else { return false }
+        return player.rate > 0
+    }
+    
+    func getDuration(for videoURL: String) -> Double {
+        guard let player = players[videoURL],
+              let currentItem = player.currentItem else { return 0.0 }
+        let duration = currentItem.duration
+        return duration.seconds.isFinite ? duration.seconds : 0.0
     }
     
     func cleanup() {

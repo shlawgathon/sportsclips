@@ -7,20 +7,34 @@
 
 import SwiftUI
 import AVKit
+import UIKit
 
 struct VideoPlayerView: View {
     let video: VideoClip
-    @StateObject private var playerManager = VideoPlayerManager()
+    @ObservedObject var playerManager: VideoPlayerManager
     @State private var player: AVPlayer?
     
     var body: some View {
         ZStack {
-            // Video player
+            // Video player - full screen without controls
             if let player = player {
                 VideoPlayer(player: player)
-                    .aspectRatio(9/16, contentMode: .fit)
+                    .aspectRatio(9/16, contentMode: .fill)
                     .clipped()
                     .ignoresSafeArea()
+                    .onAppear {
+                        // Hide video controls
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                               let window = windowScene.windows.first {
+                                window.subviews.forEach { subview in
+                                    if let videoPlayerView = findVideoPlayerView(in: subview) {
+                                        videoPlayerView.showsPlaybackControls = false
+                                    }
+                                }
+                            }
+                        }
+                    }
             } else {
                 // Loading placeholder
                 Rectangle()
@@ -30,24 +44,7 @@ struct VideoPlayerView: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(1.5)
                     )
-            }
-            
-            // Overlay UI
-            VStack {
-                Spacer()
-                
-                HStack {
-                    // Left side - Caption
-                    CaptionView(video: video)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    Spacer()
-                    
-                    // Right side - Action buttons
-                    VideoOverlayView(video: video)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 100) // Account for tab bar
+                    .ignoresSafeArea()
             }
         }
         .onAppear {
@@ -58,6 +55,19 @@ struct VideoPlayerView: View {
         }
     }
     
+    private func findVideoPlayerView(in view: UIView) -> AVPlayerViewController? {
+        // Look for AVPlayerViewController in the view hierarchy
+        for subview in view.subviews {
+            if let playerVC = subview as? AVPlayerViewController {
+                return playerVC
+            }
+            if let found = findVideoPlayerView(in: subview) {
+                return found
+            }
+        }
+        return nil
+    }
+    
     private func setupPlayer() {
         player = playerManager.getPlayer(for: video.videoURL)
         playerManager.playVideo(for: video.videoURL)
@@ -65,5 +75,5 @@ struct VideoPlayerView: View {
 }
 
 #Preview {
-    VideoPlayerView(video: VideoClip.mock)
+    VideoPlayerView(video: VideoClip.mock, playerManager: VideoPlayerManager())
 }
