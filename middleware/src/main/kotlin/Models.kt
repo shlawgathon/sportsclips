@@ -63,6 +63,7 @@ enum class Sport {
     Baseball,
     Tennis,
     Golf,
+    Quidditch,
     Hockey,
     Boxing,
     MMA,
