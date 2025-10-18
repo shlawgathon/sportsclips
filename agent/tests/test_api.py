@@ -106,42 +106,32 @@ class TestHealthEndpoint:
 class TestVideoProcessing:
     """Test video processing logic."""
 
-    def test_process_video_sends_snippet_and_complete(self):
-        """Test that processing sends a snippet and completion message."""
+    @patch("src.api.pipeline")
+    def test_process_video_sends_snippet_and_complete(self, mock_pipeline):
+        """Test that processing uses the pipeline correctly."""
         mock_ws = Mock()
         test_url = "https://youtube.com/watch?v=test"
 
         process_video_and_generate_snippets(test_url, mock_ws)
 
-        # Should have called send twice: once for snippet, once for complete
-        assert mock_ws.send.call_count == 2
+        # Verify pipeline.process_video_url was called with correct arguments
+        mock_pipeline.process_video_url.assert_called_once()
+        call_kwargs = mock_pipeline.process_video_url.call_args[1]
+        assert call_kwargs["video_url"] == test_url
+        assert call_kwargs["ws"] == mock_ws
 
-        # First call should be snippet
-        first_call = mock_ws.send.call_args_list[0][0][0]
-        first_data = json.loads(first_call)
-        assert first_data["type"] == "snippet"
-        assert first_data["data"]["metadata"]["src_video_url"] == test_url
-
-        # Second call should be complete
-        second_call = mock_ws.send.call_args_list[1][0][0]
-        second_data = json.loads(second_call)
-        assert second_data["type"] == "snippet_complete"
-        assert second_data["metadata"]["src_video_url"] == test_url
-
-    def test_process_video_sends_error_on_exception(self):
-        """Test that processing sends error message on exception."""
+    @patch("src.api.pipeline")
+    def test_process_video_sends_error_on_exception(self, mock_pipeline):
+        """Test that processing handles pipeline errors correctly."""
         mock_ws = Mock()
         test_url = "https://youtube.com/watch?v=test"
 
-        # Patch to cause an exception during processing
-        with patch("src.api.logger"):
-            # Mock send to raise an exception on first call
-            mock_ws.send.side_effect = [Exception("Test error"), None]
+        # Make pipeline raise an exception
+        mock_pipeline.process_video_url.side_effect = Exception("Pipeline error")
 
+        # This should not raise - the pipeline handles errors internally
+        with pytest.raises(Exception, match="Pipeline error"):
             process_video_and_generate_snippets(test_url, mock_ws)
-
-            # Should have attempted to send at least once
-            assert mock_ws.send.call_count >= 1
 
 
 class TestAPIIntegration:

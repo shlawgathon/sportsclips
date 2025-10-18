@@ -13,6 +13,8 @@ from typing import Any
 from flask import Flask, request
 from flask_sock import Sock
 
+from .pipeline import create_default_pipeline
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,6 +22,9 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app and WebSocket
 app = Flask(__name__)
 sock = Sock(app)
+
+# Initialize video pipeline
+pipeline = create_default_pipeline(chunk_duration=15)
 
 
 def create_snippet_message(
@@ -89,45 +94,21 @@ def process_video_and_generate_snippets(video_url: str, ws: Any) -> None:
     """
     Process a video URL and generate snippets, streaming them via WebSocket.
 
-    This is a placeholder implementation. In a real system, this would:
-    1. Download/stream the video from the URL
-    2. Use ML/AI to identify interesting segments
-    3. Extract and encode those segments as MP4 files
-    4. Stream each snippet back through the WebSocket
+    Downloads the video, splits it into 15-second chunks, and streams each
+    chunk back through the WebSocket.
 
     Args:
         video_url: URL of the video to process
         ws: WebSocket connection object
     """
-    # TODO: Implement actual video processing logic
-    # This is a placeholder that demonstrates the API structure
-
-    try:
-        logger.info(f"Processing video: {video_url}")
-
-        # Placeholder: In real implementation, process video and extract snippets
-        # For now, send a mock snippet to demonstrate the API
-
-        # Example snippet (would come from actual video processing)
-        mock_video_data = b"mock_mp4_data"  # Replace with actual MP4 data
-
-        snippet_message = create_snippet_message(
-            video_data=mock_video_data,
-            src_video_url=video_url,
-            title="Placeholder Snippet",
-            description="This is a placeholder. Implement video processing logic.",
-        )
-
-        ws.send(snippet_message)
-        logger.info("Sent snippet to client")
-
-        # Send completion message
-        ws.send(create_complete_message(video_url))
-        logger.info("Processing complete")
-
-    except Exception as e:
-        logger.error(f"Error processing video: {e}")
-        ws.send(create_error_message(str(e), video_url))
+    # Use the pipeline to process the video
+    pipeline.process_video_url(
+        video_url=video_url,
+        ws=ws,
+        create_snippet_message=create_snippet_message,
+        create_complete_message=create_complete_message,
+        create_error_message=create_error_message,
+    )
 
 
 @sock.route("/ws/video-snippets")
