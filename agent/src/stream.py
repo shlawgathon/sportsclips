@@ -57,11 +57,13 @@ def is_live_stream(url: str) -> bool:
 
         cmd.append(url)
 
+        # Use temp_cache_dir as cwd to prevent -Frag files from appearing in project directory
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=30,
+            cwd=temp_cache_dir,
         )
 
         if result.returncode != 0:
@@ -156,7 +158,9 @@ def stream_and_chunk_live(
         ytdlp_cmd.append(url)
 
         # Build ffmpeg command to chunk the stream in real-time
-        output_pattern = temp_path / "chunk_%05d.mp4"
+        # Use relative paths so ffmpeg writes all files within temp_dir
+        output_pattern = "chunk_%05d.mp4"
+        segments_file = "segments.txt"
         ffmpeg_cmd = [
             "ffmpeg",
             "-i",
@@ -174,17 +178,19 @@ def stream_and_chunk_live(
             "-strftime",
             "0",
             "-segment_list",
-            str(temp_path / "segments.txt"),
+            segments_file,
             "-segment_list_flags",
             "live",
-            str(output_pattern),
+            output_pattern,
         ]
 
         # Start yt-dlp process
+        # Use temp_dir as cwd to prevent -Frag files from appearing in project directory
         ytdlp_process = subprocess.Popen(
             ytdlp_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            cwd=temp_dir,
         )
 
         # Start ffmpeg process, reading from yt-dlp's output
@@ -373,8 +379,13 @@ def stream_video_chunks(
 
         try:
             # Start yt-dlp process with stdout as pipe
+            # Use temp_cache_dir as cwd to prevent -Frag files from appearing in project directory
             process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=chunk_size
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=chunk_size,
+                cwd=temp_cache_dir,
             )
 
             # Ensure stdout is available
@@ -478,11 +489,12 @@ def stream_and_chunk_video(
                     f.write(chunk)
 
             # Split into chunks using ffmpeg
-            output_pattern = chunk_dir / "chunk_%05d.mp4"
+            # Use relative paths so ffmpeg writes all files within chunk_dir
+            output_pattern = "chunk_%05d.mp4"
             cmd = [
                 "ffmpeg",
                 "-i",
-                str(video_file),
+                str(video_file.absolute()),  # Use absolute path for input file
                 "-c",
                 "copy",  # Copy without re-encoding for speed
                 "-f",
@@ -493,16 +505,16 @@ def stream_and_chunk_video(
                 "1",
                 "-map",
                 "0",
-                str(output_pattern),
+                output_pattern,
             ]
 
-            # Use temp_dir as cwd to prevent -Frag files from conflicting in concurrent operations
+            # Use chunk_dir as cwd to prevent -Frag files from conflicting in concurrent operations
             subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=True,
-                cwd=temp_dir,
+                cwd=str(chunk_dir),
             )
 
             # Yield all chunks
