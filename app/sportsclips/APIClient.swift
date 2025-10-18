@@ -149,35 +149,89 @@ final class APIClient {
         try await request("/live", method: "POST", body: CreateLiveRequest(title: title, description: description, streamUrl: streamUrl, isLive: isLive), response: IdResponse.self)
     }
 
-    // MARK: - Clips
+    // MARK: - Helpers (Query)
+    private func request<T: Decodable>(_ path: String, queryItems: [URLQueryItem], method: String = "GET", body: Encodable? = nil, response: T.Type) async throws -> T {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components.path = baseURL.appendingPathComponent(trimmed).path.replacingOccurrences(of: baseURL.path, with: "")
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        if let body = body {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONEncoder().encode(AnyEncodable(body))
+        }
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw NSError(domain: "API", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"])
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
 
-    struct PresignUploadRequest: Encodable {
-        let key: String
-        let contentType: String?
-    }
-    struct PresignResponse: Decodable {
-        let url: String
-        let key: String?
-    }
-    struct CreateClipRequest: Encodable {
-        let s3Key: String
-        let title: String
-        let description: String
+    // MARK: - Domain Models
+    enum APISport: String, Codable {
+        case All, Football, Basketball, Soccer, Baseball, Tennis, Golf, Hockey, Boxing, MMA, Racing
     }
 
-    func presignUpload(key: String, contentType: String? = nil) async throws -> PresignResponse {
-        try await request("/clips/presign-upload", method: "POST", body: PresignUploadRequest(key: key, contentType: contentType), response: PresignResponse.self)
+    struct LiveGame: Codable {
+        let gameId: String
+        let name: String
+        let sport: APISport
+        let createdAt: Int64
+    }
+
+    struct ClipListItem: Codable {
+        let id: String
+        let clip: Clip
+    }
+
+    struct GameListItem: Codable {
+        let id: String
+        let game: LiveGame
     }
 
     struct UrlResponse: Decodable { let url: String }
 
-    func presignDownload(id: String) async throws -> UrlResponse {
-        try await request("/clips/presign-download/\(id)", response: UrlResponse.self)
+    enum ProcessingStatus: String, Codable { case Queued, Processing, Completed, Error }
+
+    struct TrackedVideo: Codable {
+        let youtubeVideoId: String
+        let sourceUrl: String
+        let sport: APISport
+        let gameName: String
+        let status: ProcessingStatus
+        let lastProcessedAt: Int64?
+        let createdAt: Int64
     }
 
-    @discardableResult
-    func createClip(s3Key: String, title: String, description: String) async throws -> IdResponse {
-        try await request("/clips", method: "POST", body: CreateClipRequest(s3Key: s3Key, title: title, description: description), response: IdResponse.self)
+    struct CatalogItem: Codable {
+        let id: String
+        let tracked: TrackedVideo
+    }
+
+    struct IngestResponse: Codable {
+        let videoId: String
+        let createdClips: Int
+    }
+
+    // MARK: - Clips
+
+    func listClips() async throws -> [ClipListItem] {
+        try await request("/clips", response: [ClipListItem].self)
+    }
+
+    func listClipsByGame(gameId: String) async throws -> [ClipListItem] {
+        try await request("/clips/by-game/\(gameId)", response: [ClipListItem].self)
+    }
+
+    func listClipsBySport(_ sport: APISport) async throws -> [ClipListItem] {
+        try await request("/clips/by-sport/\(sport.rawValue)", response: [ClipListItem].self)
+    }
+
+    func presignDownload(id: String) async throws -> UrlResponse {
+        try await request("/clips/presign-download/\(id)", response: UrlResponse.self)
     }
 
     func getClip(id: String) async throws -> Clip {
@@ -200,6 +254,38 @@ final class APIClient {
 
     func recommendations(clipId: String) async throws -> [RecommendationItem] {
         try await request("/clips/\(clipId)/recommendations", response: [RecommendationItem].self)
+    }
+
+    // MARK: - Games
+
+    struct CreateGameRequest: Encodable {
+        let gameId: String
+        let name: String
+        let sport: APISport
+    }
+
+    @discardableResult
+    func createGame(gameId: String, name: String, sport: APISport) async throws -> IdResponse {
+        try await request("/games", method: "POST", body: CreateGameRequest(gameId: gameId, name: name, sport: sport), response: IdResponse.self)
+    }
+
+    func listGames() async throws -> [GameListItem] {
+        try await request("/games", response: [GameListItem].self)
+    }
+
+    func getGame(gameId: String) async throws -> GameListItem {
+        try await request("/games/\(gameId)", response: GameListItem.self)
+    }
+
+    // MARK: - Ingestion & Catalog
+
+    func ingestYouTube(sport: APISport? = nil) async throws -> IngestResponse {
+        let items = sport != nil ? [URLQueryItem(name: "sport", value: sport!.rawValue)] : []
+        return try await request("/ingest/youtube", queryItems: items, method: "POST", body: nil, response: IngestResponse.self)
+    }
+
+    func catalog() async throws -> [CatalogItem] {
+        try await request("/catalog", response: [CatalogItem].self)
     }
 }
 

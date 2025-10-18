@@ -47,27 +47,42 @@ fun Application.configureDatabases()
     // Every minute, query YouTube for top live videos per sport and catalog them.
     // Keeps LiveGame and TrackedVideo collections fresh with top 10 items per sport.
     run {
+        val log = this.log
         val schedulerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         var schedulerJob: Job? = null
-        environment.monitor.subscribe(ApplicationStopped) { schedulerJob?.cancel() }
+        environment.monitor.subscribe(ApplicationStopped) {
+            log.info("[YT-SCHEDULER] Application stopping, cancelling YouTube scheduler if running")
+            schedulerJob?.cancel()
+        }
         environment.monitor.subscribe(ApplicationStarted) {
+            log.info("[YT-SCHEDULER] Starting YouTube top games scheduler")
             schedulerJob = schedulerScope.launch {
                 try {
                     while (isActive) {
+                        val tickStartedAt = System.currentTimeMillis()
                         try {
+                            log.info("[YT-SCHEDULER] Tick started")
                             val sports = Sport.values().filter { it != Sport.All }
                             for (sp in sports) {
                                 try {
+                                    log.debug("[YT-SCHEDULER] Querying YouTube for sport=${sp.name}")
                                     val resp = youtube.searchLiveSports("${sp.name} live", 10)
+                                    log.info("[YT-SCHEDULER] sport=${sp.name} fetched=${resp.items.size}")
                                     resp.items.forEach { item ->
                                         val videoId = item.id.videoId
                                         val title = item.snippet.title
                                         val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
+                                        log.debug("[YT-SCHEDULER] Processing item sport=${sp.name} videoId=$videoId title='${title}'")
                                         // Ensure game exists/upsert
-                                        try { liveGameService.create(LiveGame(gameId = videoId, name = title, sport = sp)) } catch (_: Exception) {}
+                                        try {
+                                            liveGameService.create(LiveGame(gameId = videoId, name = title, sport = sp))
+                                            log.debug("[YT-SCHEDULER] Upserted LiveGame videoId=$videoId")
+                                        } catch (e: Exception) {
+                                            log.debug("[YT-SCHEDULER] LiveGame upsert skipped or failed videoId=$videoId reason=${e.message}")
+                                        }
                                         // Track video in catalog as Queued if new
                                         try {
-                                            trackedVideoService.upsert(
+                                            val id = trackedVideoService.upsert(
                                                 TrackedVideo(
                                                     youtubeVideoId = videoId,
                                                     sourceUrl = sourceUrl,
@@ -76,20 +91,29 @@ fun Application.configureDatabases()
                                                     status = ProcessingStatus.Queued
                                                 )
                                             )
-                                        } catch (_: Exception) {}
+                                            log.debug("[YT-SCHEDULER] Upserted TrackedVideo id=$id videoId=$videoId sport=${sp.name}")
+                                        } catch (e: Exception) {
+                                            log.warn("[YT-SCHEDULER] Failed to upsert TrackedVideo videoId=$videoId sport=${sp.name} reason=${e.message}", e)
+                                        }
                                     }
                                 } catch (e: Exception) {
                                     // swallow sport-specific errors to keep loop healthy
+                                    log.error("[YT-SCHEDULER] Error while querying/processing sport=${sp.name}: ${e.message}", e)
                                 }
                             }
-                        } catch (_: Exception) {
+                            log.info("[YT-SCHEDULER] Tick completed durationMs=${System.currentTimeMillis() - tickStartedAt}")
+                        } catch (e: Exception) {
                             // ignore outer loop errors
+                            log.error("[YT-SCHEDULER] Unhandled error in tick: ${e.message}", e)
                         }
                         // Sleep for one minute
-                        kotlinx.coroutines.delay(60_000)
+                        val sleepMs = 60_000L
+                        log.debug("[YT-SCHEDULER] Sleeping for ${sleepMs}ms")
+                        kotlinx.coroutines.delay(sleepMs)
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
                     // exiting scheduler
+                    log.warn("[YT-SCHEDULER] Scheduler exiting due to exception: ${e.message}", e)
                 }
             }
         }
