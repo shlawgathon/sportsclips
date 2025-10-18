@@ -1,5 +1,6 @@
 package gg.growly
 
+import gg.growly.services.Env
 import gg.growly.services.YouTubeKtorService
 import io.ktor.client.plugins.cookies.*
 import io.ktor.client.request.*
@@ -18,7 +19,7 @@ class ApplicationTest {
     @Test
     fun testYouTubeSearchFlow()
     {
-        val client = YouTubeKtorService("AIzaSyDFcuKpHYXZLG6WGwC2w7KoTgcSvJuwr-Y")
+        val client = YouTubeKtorService(Env.getRequired("YOUTUBE_API_KEY"))
         runBlocking {
             client.searchLiveSports().items.forEach { item ->
                 println(item.snippet)
