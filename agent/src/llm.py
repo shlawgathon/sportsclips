@@ -458,7 +458,9 @@ class GeminiAgent:
             inputs.extend(context_inputs)
 
         output = await self.generate(inputs, output_modality=ModalityType.TEXT)
-        return self.process_output(output)
+        result = self.process_output(output)
+        assert isinstance(result, str)
+        return result
 
     async def generate_from_video(
         self, video_input: Union[bytes, Path, str], prompt: str
@@ -479,7 +481,9 @@ class GeminiAgent:
         ]
 
         output = await self.generate(inputs, output_modality=ModalityType.TEXT)
-        return self.process_output(output)
+        result = self.process_output(output)
+        assert isinstance(result, str)
+        return result
 
     async def generate_from_audio(
         self, audio_input: Union[bytes, Path, str], prompt: str
@@ -500,7 +504,9 @@ class GeminiAgent:
         ]
 
         output = await self.generate(inputs, output_modality=ModalityType.TEXT)
-        return self.process_output(output)
+        result = self.process_output(output)
+        assert isinstance(result, str)
+        return result
 
     async def generate_multimodal(
         self,
