@@ -112,13 +112,14 @@ class TestVideoProcessing:
         mock_ws = Mock()
         test_url = "https://youtube.com/watch?v=test"
 
-        process_video_and_generate_snippets(test_url, mock_ws)
+        process_video_and_generate_snippets(test_url, mock_ws, is_live=False)
 
         # Verify pipeline.process_video_url was called with correct arguments
         mock_pipeline.process_video_url.assert_called_once()
         call_kwargs = mock_pipeline.process_video_url.call_args[1]
         assert call_kwargs["video_url"] == test_url
         assert call_kwargs["ws"] == mock_ws
+        assert call_kwargs["is_live"] == False
 
     @patch("src.api.pipeline")
     def test_process_video_sends_error_on_exception(self, mock_pipeline):
@@ -131,7 +132,7 @@ class TestVideoProcessing:
 
         # This should not raise - the pipeline handles errors internally
         with pytest.raises(Exception, match="Pipeline error"):
-            process_video_and_generate_snippets(test_url, mock_ws)
+            process_video_and_generate_snippets(test_url, mock_ws, is_live=False)
 
 
 class TestAPIIntegration:

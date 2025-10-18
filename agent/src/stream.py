@@ -349,10 +349,10 @@ def stream_and_chunk_video(
     chunk_duration: int = 15,
     format_selector: str = "best[ext=mp4]/best",
     additional_options: list[str] | None = None,
-    auto_detect_live: bool = True,
+    is_live: bool = False,
 ) -> Generator[bytes, None, None]:
     """
-    Stream and chunk a video, automatically handling live vs non-live streams.
+    Stream and chunk a video, handling live vs non-live streams based on is_live parameter.
 
     For non-live streams:
         - Downloads the entire video
@@ -368,13 +368,13 @@ def stream_and_chunk_video(
         chunk_duration: Duration of each chunk in seconds (default: 15)
         format_selector: yt-dlp format selector (default: "best")
         additional_options: Additional yt-dlp command-line options
-        auto_detect_live: Automatically detect and handle live streams (default: True)
+        is_live: Whether the video is a live stream (default: False)
 
     Yields:
         bytes: Video chunk data (complete MP4 files)
     """
-    # Detect if this is a live stream
-    if auto_detect_live and is_live_stream(url):
+    # Use the is_live parameter to determine the processing method
+    if is_live:
         # Use real-time chunking for live streams
         yield from stream_and_chunk_live(
             url=url,
