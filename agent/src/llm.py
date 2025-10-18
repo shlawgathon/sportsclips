@@ -5,11 +5,17 @@ This module provides a flexible agent implementation that supports various input
 and output modalities (text, image, video, audio) through a hook-based system.
 """
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional, Union
+from urllib.request import urlopen
+
+import google.generativeai as genai
+from PIL import Image
 
 
 class ModalityType(Enum):
@@ -265,11 +271,16 @@ class GeminiAgent:
             api_key: Google API key for Gemini (optional, can use env var)
             model_name: Name of the Gemini model to use
         """
-        self.api_key = api_key
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.model_name = model_name
         self.input_hooks: dict[ModalityType, InputHook] = {}
         self.output_hooks: dict[ModalityType, OutputHook] = {}
-        self._model = None  # Placeholder for actual Gemini model instance
+        self._model = None
+
+        # Configure Gemini API if key is available
+        if self.api_key:
+            genai.configure(api_key=self.api_key)
+            self._model = genai.GenerativeModel(self.model_name)
 
         # Register default hooks
         self._register_default_hooks()
@@ -364,17 +375,70 @@ class GeminiAgent:
         Returns:
             AgentOutput: Generated output
 
-        Note:
-            This is a placeholder implementation. Actual Gemini API calls
-            should be implemented here.
+        Raises:
+            ValueError: If model is not initialized or input modality is unsupported
         """
-        # TODO: Implement actual Gemini API call
-        # For now, return a placeholder response
-        return AgentOutput(
-            modality=output_modality,
-            data="Placeholder response - implement Gemini API integration",
-            metadata={"inputs": len(inputs), "config": generation_config},
-        )
+        if not self._model:
+            raise ValueError("Model not initialized. Please provide an API key.")
+
+        # Build content list for Gemini
+        content_parts = []
+        temp_files: list[str] = []  # Track temp files to clean up later
+
+        try:
+            for agent_input in inputs:
+                if agent_input.modality == ModalityType.TEXT:
+                    content_parts.append(agent_input.data)
+                elif agent_input.modality == ModalityType.IMAGE:
+                    # Handle image input with PIL
+                    if isinstance(agent_input.data, bytes):
+                        img = Image.open(BytesIO(agent_input.data))
+                        content_parts.append(img)
+                    elif isinstance(agent_input.data, (str, Path)):
+                        data_str = str(agent_input.data)
+                        if data_str.startswith(("http://", "https://")):
+                            # Load image from URL
+                            with urlopen(data_str) as response:
+                                img = Image.open(BytesIO(response.read()))
+                                content_parts.append(img)
+                        else:
+                            # Load from local file
+                            img = Image.open(agent_input.data)
+                            content_parts.append(img)
+                elif agent_input.modality in (ModalityType.VIDEO, ModalityType.AUDIO):
+                    # For video/audio we still need file upload API
+                    # For now, just pass the data as-is
+                    content_parts.append(agent_input.data)
+
+            # Generate content
+            response = await self._model.generate_content_async(
+                content_parts,
+                generation_config=genai.types.GenerationConfig(**generation_config)
+                if generation_config
+                else None,
+            )
+
+            # Extract text from response
+            response_text = response.text
+
+            return AgentOutput(
+                modality=output_modality,
+                data=response_text,
+                metadata={
+                    "inputs": len(inputs),
+                    "config": generation_config,
+                    "model": self.model_name,
+                },
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to generate content: {str(e)}")
+        finally:
+            # Clean up temp files
+            for temp_file in temp_files:
+                try:
+                    os.unlink(temp_file)
+                except Exception:
+                    pass  # Ignore cleanup errors
 
     async def generate_text(
         self, prompt: str, context_inputs: Optional[list[AgentInput]] = None
