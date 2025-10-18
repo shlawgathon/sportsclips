@@ -6,6 +6,23 @@ from pathlib import Path
 from typing import Generator
 
 
+def get_cookies_path() -> str | None:
+    """
+    Get the path to the cookies.txt file if it exists.
+
+    Returns:
+        str | None: Path to cookies.txt if found, None otherwise
+    """
+    # Look for cookies.txt in the agent directory
+    agent_dir = Path(__file__).parent.parent
+    cookies_path = agent_dir / "cookies.txt"
+
+    if cookies_path.exists():
+        return str(cookies_path)
+
+    return None
+
+
 def is_live_stream(url: str) -> bool:
     """
     Check if a URL points to a live stream.
@@ -24,8 +41,14 @@ def is_live_stream(url: str) -> bool:
             "1",
             "--no-warnings",
             "--quiet",
-            url,
         ]
+
+        # Add cookies if available
+        cookies_path = get_cookies_path()
+        if cookies_path:
+            cmd.extend(["--cookies", cookies_path])
+
+        cmd.append(url)
 
         result = subprocess.run(
             cmd,
@@ -91,6 +114,11 @@ def stream_and_chunk_live(
             "--quiet",
             "--no-warnings",
         ]
+
+        # Add cookies if available
+        cookies_path = get_cookies_path()
+        if cookies_path:
+            ytdlp_cmd.extend(["--cookies", cookies_path])
 
         # Only add format selector if it's not the default
         # Live streams with --live-from-start work best without explicit format selection
@@ -288,6 +316,11 @@ def stream_video_chunks(
         "--quiet",  # Suppress yt-dlp output
         "--no-warnings",
     ]
+
+    # Add cookies if available
+    cookies_path = get_cookies_path()
+    if cookies_path:
+        cmd.extend(["--cookies", cookies_path])
 
     # Add live stream handling options
     if live_from_start:
