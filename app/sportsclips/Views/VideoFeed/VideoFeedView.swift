@@ -29,6 +29,7 @@ struct VideoFeedView: View {
     @State private var allVideos: [VideoClip] = [] // All loaded videos
     @State private var currentVideoIndex: Int = 0 // Current video being viewed
     @State private var isLoadingMore: Bool = false // Loading more videos
+    @State private var isLongPressing: Bool = false // Flag to prevent single tap during long press
     
     var body: some View {
         ZStack {
@@ -65,33 +66,21 @@ struct VideoFeedView: View {
                                             .fill(Color.clear)
                                             .frame(width: geometry.size.width, height: geometry.size.height)
                                             .contentShape(Rectangle())
-                                            .gesture(
-                                                // Combined gesture to handle tap, double tap, and long press
-                                                DragGesture(minimumDistance: 0)
-                                                    .onEnded { value in
-                                                        // Single tap (no drag)
-                                                        if abs(value.translation.x) < 10 && abs(value.translation.y) < 10 {
-                                                            handleSingleTap(for: video)
-                                                        }
-                                                    }
-                                                    .simultaneously(with:
-                                                        TapGesture(count: 2)
-                                                            .onEnded { _ in
-                                                                // Double tap to like
-                                                                let location = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                                                                handleDoubleTapLike(for: video, at: location)
-                                                            }
-                                                    )
-                                                    .simultaneously(with:
-                                                        LongPressGesture(minimumDuration: 0.5)
-                                                            .onChanged { _ in
-                                                                handleLongPress(for: video)
-                                                            }
-                                                            .onEnded { _ in
-                                                                handleLongPressEnd(for: video)
-                                                            }
-                                                    )
-                                            )
+                                            .onTapGesture(count: 1) { location in
+                                                // Single tap to pause/play
+                                                handleSingleTap(for: video)
+                                            }
+                                            .onTapGesture(count: 2) { location in
+                                                // Double tap to like with location
+                                                handleDoubleTapLike(for: video, at: location)
+                                            }
+                                            .onLongPressGesture(minimumDuration: 0.5, maximumDistance: .infinity, pressing: { pressing in
+                                                if pressing {
+                                                    handleLongPress(for: video)
+                                                } else {
+                                                    handleLongPressEnd(for: video)
+                                                }
+                                            }, perform: {})
                                             .zIndex(1) // Above video player
                                         
                                         // Video overlay with buttons and caption
@@ -413,6 +402,12 @@ struct VideoFeedView: View {
     }
     
     private func handleSingleTap(for video: VideoClip) {
+        // Don't handle single tap if we're in the middle of a long press
+        guard !isLongPressing else {
+            print("🎬 Single tap ignored - long press in progress")
+            return
+        }
+        
         // Toggle play/pause on single tap
         let player = playerManager.getPlayer(for: video.videoURL)
         if player.timeControlStatus == .playing {
@@ -429,11 +424,18 @@ struct VideoFeedView: View {
         // Show controls on long press - they stay visible until user releases
         showVideoControls[video.id] = true
         
+        // Prevent single tap from being triggered during long press
+        // by setting a flag that the single tap handler can check
+        isLongPressing = true
+        
         print("🎬 Long pressed to show controls for video: \(video.id)")
         print("🎬 showVideoControls[\(video.id)] = \(showVideoControls[video.id] ?? false)")
     }
     
     private func handleLongPressEnd(for video: VideoClip) {
+        // Clear the long pressing flag
+        isLongPressing = false
+        
         // Hide controls after 3 second delay to allow adjustment
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             showVideoControls[video.id] = false
