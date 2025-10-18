@@ -55,10 +55,43 @@ data class LiveVideo(
 }
 
 @Serializable
+enum class Sport {
+    All,
+    Football,
+    Basketball,
+    Soccer,
+    Baseball,
+    Tennis,
+    Golf,
+    Quidditch,
+    Hockey,
+    Boxing,
+    MMA,
+    Racing
+}
+
+@Serializable
+data class LiveGame(
+    val gameId: String,
+    val name: String,
+    val sport: Sport,
+    val createdAt: Long = Instant.now().epochSecond
+) {
+    fun toDocument(): Document = Document.parse(json.encodeToString(this))
+
+    companion object {
+        private val json = Json { ignoreUnknownKeys = true }
+        fun fromDocument(document: Document): LiveGame = json.decodeFromString(document.toJson())
+    }
+}
+
+@Serializable
 data class Clip(
     val s3Key: String,
     val title: String,
     val description: String,
+    val gameId: String = "",
+    val sport: Sport = Sport.All,
     val likesCount: Int = 0,
     val commentsCount: Int = 0,
     val embedding: List<Double>? = null,
@@ -163,12 +196,43 @@ class LiveVideoService(private val database: MongoDatabase) {
     }
 }
 
+class LiveGameService(private val database: MongoDatabase) {
+    private val collection: MongoCollection<Document>
+
+    init {
+        try { database.createCollection("live_games") } catch (_: Exception) {}
+        collection = database.getCollection("live_games")
+        try { collection.createIndex(Indexes.ascending("gameId"), IndexOptions().unique(true)) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.ascending("sport")) } catch (_: Exception) {}
+    }
+
+    suspend fun create(game: LiveGame): String = withContext(Dispatchers.IO) {
+        val existing = collection.find(Filters.eq("gameId", game.gameId)).first()
+        if (existing != null) return@withContext existing["_id"].toString()
+        val doc = game.toDocument()
+        collection.insertOne(doc)
+        doc["_id"].toString()
+    }
+
+    suspend fun getByGameId(gameId: String): Pair<String, LiveGame>? = withContext(Dispatchers.IO) {
+        val doc = collection.find(Filters.eq("gameId", gameId)).first() ?: return@withContext null
+        doc["_id"].toString() to LiveGame.fromDocument(doc)
+    }
+
+    suspend fun listAll(): List<Pair<String, LiveGame>> = withContext(Dispatchers.IO) {
+        collection.find().map { it["_id"].toString() to LiveGame.fromDocument(it) }.toList()
+    }
+}
+
 class ClipService(private val database: MongoDatabase) {
     private val collection: MongoCollection<Document>
 
     init {
         try { database.createCollection("clips") } catch (_: Exception) {}
         collection = database.getCollection("clips")
+        try { collection.createIndex(Indexes.ascending("sport")) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.ascending("gameId")) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.descending("createdAt")) } catch (_: Exception) {}
     }
 
     suspend fun create(clip: Clip): String = withContext(Dispatchers.IO) {
@@ -194,6 +258,14 @@ class ClipService(private val database: MongoDatabase) {
 
     suspend fun listAll(): List<Pair<String, Clip>> = withContext(Dispatchers.IO) {
         collection.find().map { it["_id"].toString() to Clip.fromDocument(it) }.toList()
+    }
+
+    suspend fun listByGame(gameId: String): List<Pair<String, Clip>> = withContext(Dispatchers.IO) {
+        collection.find(Filters.eq("gameId", gameId)).map { it["_id"].toString() to Clip.fromDocument(it) }.toList()
+    }
+
+    suspend fun listBySport(sport: Sport): List<Pair<String, Clip>> = withContext(Dispatchers.IO) {
+        collection.find(Filters.eq("sport", sport.name)).map { it["_id"].toString() to Clip.fromDocument(it) }.toList()
     }
 
     suspend fun updateEmbedding(id: String, embedding: List<Double>) = withContext(Dispatchers.IO) {
@@ -260,5 +332,78 @@ object Recommender {
             nb += y * y
         }
         return if (na == 0.0 || nb == 0.0) 0.0 else dot / (sqrt(na) * sqrt(nb))
+    }
+}
+
+// ===================== CATALOG (TRACKED VIDEOS) =====================
+
+@Serializable
+data class TrackedVideo(
+    val youtubeVideoId: String,
+    val sourceUrl: String,
+    val sport: Sport,
+    val gameName: String,
+    val status: ProcessingStatus = ProcessingStatus.Queued,
+    val lastProcessedAt: Long? = null,
+    val createdAt: Long = Instant.now().epochSecond
+) {
+    fun toDocument(): Document = Document.parse(json.encodeToString(this))
+
+    companion object {
+        private val json = Json { ignoreUnknownKeys = true }
+        fun fromDocument(document: Document): TrackedVideo = json.decodeFromString(document.toJson())
+    }
+}
+
+@Serializable
+enum class ProcessingStatus { Queued, Processing, Completed, Error }
+
+class TrackedVideoService(private val database: MongoDatabase) {
+    private val collection: MongoCollection<Document>
+
+    init {
+        try { database.createCollection("tracked_videos") } catch (_: Exception) {}
+        collection = database.getCollection("tracked_videos")
+        try { collection.createIndex(Indexes.ascending("youtubeVideoId"), IndexOptions().unique(true)) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.ascending("status")) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.ascending("sport")) } catch (_: Exception) {}
+    }
+
+    suspend fun upsert(tv: TrackedVideo): String = withContext(Dispatchers.IO) {
+        val existing = collection.find(Filters.eq("youtubeVideoId", tv.youtubeVideoId)).first()
+        if (existing != null) {
+            val id = existing["_id"].toString()
+            val current = TrackedVideo.fromDocument(existing)
+            val updated = current.copy(
+                sourceUrl = tv.sourceUrl,
+                sport = tv.sport,
+                gameName = tv.gameName,
+                status = tv.status,
+                lastProcessedAt = tv.lastProcessedAt ?: current.lastProcessedAt
+            )
+            collection.findOneAndReplace(Filters.eq("_id", ObjectId(id)), updated.toDocument())
+            id
+        } else {
+            val doc = tv.toDocument()
+            collection.insertOne(doc)
+            doc["_id"].toString()
+        }
+    }
+
+    suspend fun setStatus(youtubeVideoId: String, status: ProcessingStatus) = withContext(Dispatchers.IO) {
+        val existing = collection.find(Filters.eq("youtubeVideoId", youtubeVideoId)).first() ?: return@withContext
+        val id = existing["_id"].toString()
+        val current = TrackedVideo.fromDocument(existing)
+        val updated = current.copy(status = status, lastProcessedAt = if (status == ProcessingStatus.Completed) Instant.now().epochSecond else current.lastProcessedAt)
+        collection.findOneAndReplace(Filters.eq("_id", ObjectId(id)), updated.toDocument())
+    }
+
+    suspend fun getByYouTubeId(youtubeVideoId: String): Pair<String, TrackedVideo>? = withContext(Dispatchers.IO) {
+        val doc = collection.find(Filters.eq("youtubeVideoId", youtubeVideoId)).first() ?: return@withContext null
+        doc["_id"].toString() to TrackedVideo.fromDocument(doc)
+    }
+
+    suspend fun listAll(): List<Pair<String, TrackedVideo>> = withContext(Dispatchers.IO) {
+        collection.find().map { it["_id"].toString() to TrackedVideo.fromDocument(it) }.toList()
     }
 }

@@ -22,10 +22,7 @@ class ApplicationE2ETest {
         val r1 = client.get("/live")
         assertEquals(HttpStatusCode.Unauthorized, r1.status)
 
-        val r2 = client.post("/clips") {
-            contentType(ContentType.Application.Json)
-            setBody("""{"s3Key":"k","title":"t","description":"d"}""")
-        }
+        val r2 = client.post("/ingest/youtube")
         assertEquals(HttpStatusCode.Unauthorized, r2.status)
     }
 
@@ -89,57 +86,17 @@ class ApplicationE2ETest {
         val liveGet = authClient.get("/live/$liveId")
         assertEquals(HttpStatusCode.OK, liveGet.status)
 
-        // Presign upload
-        val presign = authClient.post("/clips/presign-upload") {
+        // Create a game (for cataloging event)
+        val gameId = "G-" + UUID.randomUUID().toString().take(8)
+        val gameCreate = authClient.post("/games") {
             contentType(ContentType.Application.Json)
-            setBody("""{"key":"uploads/test-${UUID.randomUUID()}.mp4","contentType":"video/mp4"}""")
+            setBody("""{"gameId":"$gameId","name":"El Classico","sport":"Soccer"}""")
         }
-        assertEquals(HttpStatusCode.OK, presign.status)
-        val presignJson = Json.parseToJsonElement(presign.bodyAsText()).jsonObject
-        val presignedUrl = presignJson["url"]?.jsonPrimitive?.content
-        val presignKey = presignJson["key"]?.jsonPrimitive?.content
-        assertNotNull(presignedUrl)
-        assertNotNull(presignKey)
+        assertEquals(HttpStatusCode.Created, gameCreate.status)
 
-        // Create clip
-        val clipCreate = authClient.post("/clips") {
-            contentType(ContentType.Application.Json)
-            setBody("""{"s3Key":"$presignKey","title":"Goal","description":"Amazing goal"}""")
-        }
-        assertEquals(HttpStatusCode.Created, clipCreate.status)
-        val clipJson = Json.parseToJsonElement(clipCreate.bodyAsText()).jsonObject
-        val clipId = clipJson["id"]?.jsonPrimitive?.content
-        assertNotNull(clipId)
-
-        // Get clip
-        val clipGet = authClient.get("/clips/$clipId")
-        assertEquals(HttpStatusCode.OK, clipGet.status)
-
-        // Like clip
-        val like = authClient.post("/clips/$clipId/like")
-        assertEquals(HttpStatusCode.OK, like.status)
-
-        // Comment on clip
-        val comment = authClient.post("/clips/$clipId/comments") {
-            contentType(ContentType.Application.Json)
-            setBody("""{"text":"Great clip!"}""")
-        }
-        assertEquals(HttpStatusCode.Created, comment.status)
-
-        // List comments
-        val comments = authClient.get("/clips/$clipId/comments")
-        assertEquals(HttpStatusCode.OK, comments.status)
-        assertTrue(comments.bodyAsText().contains("Great clip!"))
-
-        // Presign download
-        val download = authClient.get("/clips/presign-download/$clipId")
-        assertEquals(HttpStatusCode.OK, download.status)
-        val downloadUrl = Json.parseToJsonElement(download.bodyAsText()).jsonObject["url"]?.jsonPrimitive?.content
-        assertNotNull(downloadUrl)
-
-        // Recommendations (may be empty list)
-        val recs = authClient.get("/clips/$clipId/recommendations")
-        assertEquals(HttpStatusCode.OK, recs.status)
+        // Catalog listing (may be empty)
+        val catalog = authClient.get("/catalog")
+        assertEquals(HttpStatusCode.OK, catalog.status)
 
         // Logout
         val logout = authClient.post("/auth/logout")

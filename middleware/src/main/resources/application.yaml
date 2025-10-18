@@ -16,10 +16,16 @@ db:
 aws:
   s3:
     region: us-east-1
-    endpoint: ${AWS_S3_BUCKET_ENDPOINT}
+    endpoint: https://ID.r2.cloudflarestorage.com
     bucket: sportsclips-clip-store
-  accessKeyId: ${AWS_ACCESS_KEY_ID}
-  secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
+  accessKeyId: ID
+  secretAccessKey: KEY
 
 voyage:
-  apiKey: ${VOYAGE_API_KEY}
+  apiKey: VOYAGER
+
+youtube:
+  apiKey: YOUTUBE
+
+agent:
+  baseUrl: ws://localhost:8000

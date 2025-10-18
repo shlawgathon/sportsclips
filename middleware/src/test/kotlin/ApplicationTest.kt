@@ -1,20 +1,31 @@
 package gg.growly
 
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import gg.growly.services.Env
+import gg.growly.services.YouTubeKtorService
 import io.ktor.client.plugins.cookies.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
+import kotlinx.coroutines.runBlocking
 import module
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import gg.growly.services.S3PresignHelper
 import java.util.UUID
 
 class ApplicationTest {
+
+    @Test
+    fun testYouTubeSearchFlow()
+    {
+        val client = YouTubeKtorService(Env.getRequired("YOUTUBE_API_KEY"))
+        runBlocking {
+            client.searchLiveSports().items.forEach { item ->
+                println(item.snippet)
+            }
+        }
+    }
 
     @Test
     fun testLoginLogoutFlow() = testApplication {

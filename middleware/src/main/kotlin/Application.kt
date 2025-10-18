@@ -1,8 +1,8 @@
 import gg.growly.configureDatabases
-import io.ktor.server.application.*
-import io.ktor.server.netty.EngineMain
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.server.application.*
+import io.ktor.server.netty.*
+import io.ktor.server.plugins.contentnegotiation.*
 
 fun main(args: Array<String>)
 {

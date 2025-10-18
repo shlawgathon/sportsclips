@@ -10,13 +10,10 @@ import io.ktor.server.config.tryGetString
  * HTTPS URLs using configuration values. If you need true pre-signed URLs with temporary
  * credentials, this helper can be upgraded later to use AWS SDK's S3Presigner.
  */
-class S3PresignHelper(application: Application) {
-    private val bucket: String = application.environment.config.tryGetString("aws.s3.bucket")
-        ?: "sportsclips-clip-store"
-    private val region: String = application.environment.config.tryGetString("aws.s3.region")
-        ?: "us-east-1"
-    private val endpoint: String = application.environment.config.tryGetString("aws.s3.endpoint")
-        ?: "https://s3.$region.amazonaws.com"
+class S3Helper(application: Application) {
+    private val bucket: String = "sportsclips-clip-store"
+    private val region: String = "us-east-1"
+    private val endpoint: String = Env.getRequired("AWS_S3_BUCKET_ENDPOINT")
 
     private fun normalize(base: String): String = base.trimEnd('/')
 
