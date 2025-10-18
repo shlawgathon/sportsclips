@@ -16,6 +16,7 @@ WebSocket (ws:// or wss://)
 
 Query parameters:
 - `video_url` (string, required): URL of the source video to process
+- `is_live` (boolean, required): Whether the video is a live stream
 
 #### Response Messages
 
@@ -75,7 +76,7 @@ The server streams JSON messages. Three message types are defined:
 
 #### Behavior
 
-1. Client connects to WebSocket endpoint with `video_url` query parameter
+1. Client connects to WebSocket endpoint with `video_url` and `is_live` query parameters
 2. Server processes the video and identifies interesting segments
 3. Server sends zero or more `snippet` messages as segments are processed
 4. Server sends one `snippet_complete` message when processing finishes successfully
@@ -85,6 +86,7 @@ The server streams JSON messages. Three message types are defined:
 #### Error Conditions
 
 - Missing `video_url` parameter: Returns `error` message
+- Missing `is_live` parameter: Returns `error` message
 - Invalid video URL: Returns `error` message
 - Video processing failure: Returns `error` message
 
