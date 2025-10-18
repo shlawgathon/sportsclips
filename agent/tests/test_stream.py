@@ -1,11 +1,17 @@
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from src.stream import stream_video_chunks, stream_video_to_file
+from src.stream import (
+    is_live_stream,
+    stream_and_chunk_live,
+    stream_and_chunk_video,
+    stream_video_chunks,
+    stream_video_to_file,
+)
 
 
 class TestStreamVideoChunks:
@@ -242,6 +248,280 @@ class TestStreamVideoChunks:
             # Verify process was killed
             mock_process.kill.assert_called_once()
             mock_process.wait.assert_called()
+
+
+class TestIsLiveStream:
+    """Tests for is_live_stream function."""
+
+    def test_is_live_stream_with_live_video(self):
+        """Test detection of live stream."""
+        test_url = "https://youtube.com/watch?v=test123"
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = '{"is_live": true, "live_status": "is_live"}'
+            mock_run.return_value = mock_result
+
+            result = is_live_stream(test_url)
+
+            assert result is True
+            mock_run.assert_called_once()
+
+    def test_is_live_stream_with_non_live_video(self):
+        """Test detection of non-live video."""
+        test_url = "https://youtube.com/watch?v=test123"
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = '{"is_live": false, "live_status": "not_live"}'
+            mock_run.return_value = mock_result
+
+            result = is_live_stream(test_url)
+
+            assert result is False
+
+    def test_is_live_stream_with_upcoming_stream(self):
+        """Test detection of upcoming live stream."""
+        test_url = "https://youtube.com/watch?v=test123"
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = '{"is_live": false, "live_status": "is_upcoming"}'
+            mock_run.return_value = mock_result
+
+            result = is_live_stream(test_url)
+
+            assert result is True
+
+    def test_is_live_stream_with_failed_request(self):
+        """Test that failed yt-dlp requests return False."""
+        test_url = "https://invalid.com/video"
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 1
+            mock_run.return_value = mock_result
+
+            result = is_live_stream(test_url)
+
+            assert result is False
+
+    def test_is_live_stream_with_invalid_json(self):
+        """Test handling of invalid JSON response."""
+        test_url = "https://youtube.com/watch?v=test123"
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "invalid json{"
+            mock_run.return_value = mock_result
+
+            result = is_live_stream(test_url)
+
+            assert result is False
+
+    def test_is_live_stream_with_exception(self):
+        """Test that exceptions return False."""
+        test_url = "https://youtube.com/watch?v=test123"
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = Exception("Test error")
+
+            result = is_live_stream(test_url)
+
+            assert result is False
+
+
+class TestStreamAndChunkLive:
+    """Tests for stream_and_chunk_live function."""
+
+    def test_stream_and_chunk_live_basic(self):
+        """Test basic live streaming and chunking."""
+        test_url = "https://youtube.com/live/test123"
+
+        with (
+            patch("subprocess.Popen") as mock_popen,
+            patch("tempfile.mkdtemp") as mock_mkdtemp,
+            patch("shutil.rmtree"),
+        ):
+            # Setup temp directory
+            mock_mkdtemp.return_value = "/tmp/test_live_stream"
+
+            # Mock yt-dlp process
+            mock_ytdlp = MagicMock()
+            mock_ytdlp.stdout = MagicMock()
+            mock_ytdlp.stderr = MagicMock()
+            mock_ytdlp.poll.side_effect = [None, None, 0]  # Running, then done
+
+            # Mock ffmpeg process
+            mock_ffmpeg = MagicMock()
+            mock_ffmpeg.stdout = MagicMock()
+            mock_ffmpeg.stderr = MagicMock()
+            mock_ffmpeg.poll.side_effect = [None, None, 0]  # Running, then done
+
+            mock_popen.side_effect = [mock_ytdlp, mock_ffmpeg]
+
+            # Mock chunk files
+            with (
+                patch("pathlib.Path.glob") as mock_glob,
+                patch("builtins.open", mock_open(read_data=b"chunk_data")),
+            ):
+                # First call: no chunks, second: one chunk, third: same chunk, fourth: done
+                mock_glob.side_effect = [
+                    [],
+                    [Path("/tmp/test_live_stream/chunk_00000.mp4")],
+                    [Path("/tmp/test_live_stream/chunk_00000.mp4")],
+                    [Path("/tmp/test_live_stream/chunk_00000.mp4")],
+                ]
+
+                chunks = list(stream_and_chunk_live(test_url, chunk_duration=15))
+
+                assert len(chunks) > 0
+                assert all(isinstance(chunk, bytes) for chunk in chunks)
+
+    def test_stream_and_chunk_live_with_ytdlp_error(self):
+        """Test handling of yt-dlp errors."""
+        test_url = "https://youtube.com/live/test123"
+
+        with (
+            patch("subprocess.Popen") as mock_popen,
+            patch("tempfile.mkdtemp") as mock_mkdtemp,
+            patch("shutil.rmtree"),
+        ):
+            mock_mkdtemp.return_value = "/tmp/test_live_stream"
+
+            # Mock yt-dlp process with error
+            mock_ytdlp = MagicMock()
+            mock_ytdlp.stdout = MagicMock()
+            mock_ytdlp.stderr = MagicMock()
+            mock_ytdlp.stderr.read.return_value = b"yt-dlp error"
+            mock_ytdlp.poll.return_value = 1  # Error code
+
+            # Mock ffmpeg process
+            mock_ffmpeg = MagicMock()
+            mock_ffmpeg.stdout = MagicMock()
+            mock_ffmpeg.stderr = MagicMock()
+            mock_ffmpeg.poll.return_value = 0
+
+            mock_popen.side_effect = [mock_ytdlp, mock_ffmpeg]
+
+            with patch("pathlib.Path.glob") as mock_glob:
+                mock_glob.return_value = []
+
+                with pytest.raises(RuntimeError, match="yt-dlp failed"):
+                    list(stream_and_chunk_live(test_url, chunk_duration=15))
+
+
+class TestStreamAndChunkVideo:
+    """Tests for stream_and_chunk_video function."""
+
+    def test_stream_and_chunk_video_non_live(self):
+        """Test chunking non-live video."""
+        test_url = "https://youtube.com/watch?v=test123"
+
+        with (
+            patch("src.stream.is_live_stream") as mock_is_live,
+            patch("src.stream.stream_video_chunks") as mock_stream,
+            patch("subprocess.run") as mock_ffmpeg_run,
+            patch("tempfile.mkdtemp") as mock_mkdtemp,
+            patch("shutil.rmtree"),
+        ):
+            mock_is_live.return_value = False
+            mock_mkdtemp.return_value = "/tmp/test_video"
+            mock_stream.return_value = [b"video_data_1", b"video_data_2"]
+
+            # Mock ffmpeg success
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_ffmpeg_run.return_value = mock_result
+
+            # Mock chunk files
+            with patch("pathlib.Path.glob") as mock_glob, patch("pathlib.Path.mkdir"):
+                mock_glob.return_value = [
+                    Path("/tmp/test_video/chunks/chunk_00000.mp4"),
+                    Path("/tmp/test_video/chunks/chunk_00001.mp4"),
+                ]
+
+                # Mock reading chunk files
+                with patch("builtins.open", mock_open(read_data=b"chunk_data")):
+                    chunks = list(stream_and_chunk_video(test_url, chunk_duration=15))
+
+                    assert len(chunks) == 2
+                    assert all(chunk == b"chunk_data" for chunk in chunks)
+                    mock_is_live.assert_called_once()
+
+    def test_stream_and_chunk_video_live(self):
+        """Test chunking live video."""
+        test_url = "https://youtube.com/live/test123"
+
+        with (
+            patch("src.stream.is_live_stream") as mock_is_live,
+            patch("src.stream.stream_and_chunk_live") as mock_stream_live,
+        ):
+            mock_is_live.return_value = True
+            mock_stream_live.return_value = iter([b"chunk1", b"chunk2", b"chunk3"])
+
+            chunks = list(stream_and_chunk_video(test_url, chunk_duration=15))
+
+            assert len(chunks) == 3
+            mock_is_live.assert_called_once()
+            mock_stream_live.assert_called_once()
+
+    def test_stream_and_chunk_video_skip_auto_detect(self):
+        """Test skipping auto-detection when auto_detect_live=False."""
+
+        with (
+            patch("src.stream.is_live_stream") as mock_is_live,
+            patch("src.stream.stream_video_chunks") as mock_stream,
+            patch("subprocess.run") as mock_ffmpeg_run,
+            patch("tempfile.mkdtemp") as mock_mkdtemp,
+            patch("shutil.rmtree"),
+        ):
+            mock_mkdtemp.return_value = "/tmp/test_video"
+            mock_stream.return_value = [b"video_data"]
+
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_ffmpeg_run.return_value = mock_result
+
+            with (
+                patch("pathlib.Path.glob") as mock_glob,
+                patch("pathlib.Path.mkdir"),
+                patch("builtins.open", mock_open(read_data=b"chunk_data")),
+            ):
+                mock_glob.return_value = [
+                    Path("/tmp/test_video/chunks/chunk_00000.mp4")
+                ]
+
+                # Should not call is_live_stream when auto_detect_live=False
+                mock_is_live.assert_not_called()
+
+    def test_stream_and_chunk_video_ffmpeg_error(self):
+        """Test handling of ffmpeg errors in non-live mode."""
+        test_url = "https://youtube.com/watch?v=test123"
+
+        with (
+            patch("src.stream.is_live_stream") as mock_is_live,
+            patch("src.stream.stream_video_chunks") as mock_stream,
+            patch("subprocess.run") as mock_ffmpeg_run,
+            patch("tempfile.mkdtemp") as mock_mkdtemp,
+            patch("shutil.rmtree"),
+        ):
+            mock_is_live.return_value = False
+            mock_mkdtemp.return_value = "/tmp/test_video"
+            mock_stream.return_value = [b"video_data"]
+
+            # Mock ffmpeg failure
+            mock_ffmpeg_run.side_effect = subprocess.CalledProcessError(
+                1, ["ffmpeg"], stderr="ffmpeg error"
+            )
+
+            with patch("pathlib.Path.mkdir"), patch("builtins.open", mock_open()):
+                with pytest.raises(RuntimeError, match="Failed to chunk video"):
+                    list(stream_and_chunk_video(test_url, chunk_duration=15))
 
 
 class TestYtDlpAvailability:
