@@ -90,7 +90,7 @@ def create_complete_message(src_video_url: str) -> str:
     return json.dumps(message)
 
 
-def process_video_and_generate_snippets(video_url: str, ws: Any) -> None:
+def process_video_and_generate_snippets(video_url: str, ws: Any, is_live: bool) -> None:
     """
     Process a video URL and generate snippets, streaming them via WebSocket.
 
@@ -100,11 +100,13 @@ def process_video_and_generate_snippets(video_url: str, ws: Any) -> None:
     Args:
         video_url: URL of the video to process
         ws: WebSocket connection object
+        is_live: Whether the video is a live stream
     """
     # Use the pipeline to process the video
     pipeline.process_video_url(
         video_url=video_url,
         ws=ws,
+        is_live=is_live,
         create_snippet_message=create_snippet_message,
         create_complete_message=create_complete_message,
         create_error_message=create_error_message,
@@ -116,11 +118,12 @@ def video_snippets(ws: Any) -> None:
     """
     WebSocket endpoint for streaming video snippets.
 
-    Accepts a 'video_url' query parameter and streams back processed video
-    snippets as JSON messages containing base64-encoded MP4 data and metadata.
+    Accepts 'video_url' and 'is_live' query parameters and streams back processed
+    video snippets as JSON messages containing base64-encoded MP4 data and metadata.
 
     Query Parameters:
         video_url (str): URL of the video to process
+        is_live (bool): Whether the video is a live stream
 
     WebSocket Message Format:
         Snippet: {"type": "snippet", "data": {"video_data": "...", "metadata": {...}}}
@@ -129,6 +132,7 @@ def video_snippets(ws: Any) -> None:
     """
     # Get video_url from query parameters
     video_url = request.args.get("video_url")
+    is_live_str = request.args.get("is_live")
 
     if not video_url:
         error_msg = create_error_message("Missing required parameter: video_url")
@@ -136,10 +140,19 @@ def video_snippets(ws: Any) -> None:
         logger.warning("WebSocket connection missing video_url parameter")
         return
 
-    logger.info(f"New WebSocket connection for video: {video_url}")
+    if is_live_str is None:
+        error_msg = create_error_message("Missing required parameter: is_live")
+        ws.send(error_msg)
+        logger.warning("WebSocket connection missing is_live parameter")
+        return
+
+    # Parse is_live as boolean
+    is_live = is_live_str.lower() in ("true", "1", "yes")
+
+    logger.info(f"New WebSocket connection for video: {video_url} (is_live={is_live})")
 
     # Process video and stream snippets
-    process_video_and_generate_snippets(video_url, ws)
+    process_video_and_generate_snippets(video_url, ws, is_live)
 
 
 @app.route("/health")
