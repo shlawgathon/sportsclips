@@ -112,7 +112,9 @@ fun Application.configureDatabases()
                                                         try {
                                                             agent.processVideo(sourceUrl, isLive = true) { bytes, clipTitle, description ->
                                                                 val key = "clips/$videoId/${System.currentTimeMillis()}.mp4"
-                                                                try { s3u.uploadBytes(bytes, key, contentType = "video/mp4") } catch (_: Exception) {}
+                                                                try { s3u.uploadBytes(bytes, key, contentType = "video/mp4") } catch (thing: Exception) {
+                                                                    thing.printStackTrace()
+                                                                }
                                                                 val text = listOfNotNull(clipTitle, description).joinToString("\n")
                                                                 val embedding = if (text.isNotBlank()) try { voyage.embed(text) } catch (_: Exception) { null } else null
                                                                 clipService.create(
