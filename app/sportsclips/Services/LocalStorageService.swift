@@ -1,0 +1,168 @@
+//
+//  LocalStorageService.swift
+//  sportsclips
+//
+//  Local storage for user interactions and view history
+//
+
+import Foundation
+import Combine
+
+struct VideoInteraction: Codable {
+    let videoId: String
+    let liked: Bool
+    let commented: Bool
+    let shared: Bool
+    let viewedAt: Date
+    let viewDuration: TimeInterval
+}
+
+struct UserProfile: Codable {
+    let id: String
+    let username: String
+    let email: String
+    let isLoggedIn: Bool
+    let lastLoginAt: Date?
+}
+
+@MainActor
+class LocalStorageService: ObservableObject {
+    static let shared = LocalStorageService()
+    
+    @Published var userProfile: UserProfile?
+    @Published var interactions: [VideoInteraction] = []
+    @Published var viewHistory: [String] = [] // Video IDs in order of viewing
+    
+    private let userDefaults = UserDefaults.standard
+    private let interactionsKey = "video_interactions"
+    private let profileKey = "user_profile"
+    private let historyKey = "view_history"
+    private let maxLocalInteractions = 10
+    
+    private init() {
+        loadData()
+    }
+    
+    // MARK: - User Profile Management
+    func login(username: String, email: String) {
+        let profile = UserProfile(
+            id: UUID().uuidString,
+            username: username,
+            email: email,
+            isLoggedIn: true,
+            lastLoginAt: Date()
+        )
+        userProfile = profile
+        saveProfile()
+    }
+    
+    func logout() {
+        userProfile = nil
+        saveProfile()
+    }
+    
+    func signup(username: String, email: String) {
+        login(username: username, email: email)
+    }
+    
+    // MARK: - Video Interactions
+    func recordInteraction(videoId: String, liked: Bool = false, commented: Bool = false, shared: Bool = false, viewDuration: TimeInterval = 0) {
+        let interaction = VideoInteraction(
+            videoId: videoId,
+            liked: liked,
+            commented: commented,
+            shared: shared,
+            viewedAt: Date(),
+            viewDuration: viewDuration
+        )
+        
+        // Remove existing interaction for this video
+        interactions.removeAll { $0.videoId == videoId }
+        
+        // Add new interaction
+        interactions.append(interaction)
+        
+        // Keep only the most recent interactions locally
+        if interactions.count > maxLocalInteractions {
+            let sortedInteractions = interactions.sorted { $0.viewedAt > $1.viewedAt }
+            interactions = Array(sortedInteractions.prefix(maxLocalInteractions))
+        }
+        
+        saveInteractions()
+    }
+    
+    func recordView(videoId: String) {
+        // Remove from history if already exists
+        viewHistory.removeAll { $0 == videoId }
+        
+        // Add to beginning of history
+        viewHistory.insert(videoId, at: 0)
+        
+        // Keep only last 50 views
+        if viewHistory.count > 50 {
+            viewHistory = Array(viewHistory.prefix(50))
+        }
+        
+        saveHistory()
+    }
+    
+    func getInteraction(for videoId: String) -> VideoInteraction? {
+        return interactions.first { $0.videoId == videoId }
+    }
+    
+    func isLiked(videoId: String) -> Bool {
+        return getInteraction(for: videoId)?.liked ?? false
+    }
+    
+    // MARK: - Data Persistence
+    private func loadData() {
+        loadProfile()
+        loadInteractions()
+        loadHistory()
+    }
+    
+    private func loadProfile() {
+        if let data = userDefaults.data(forKey: profileKey),
+           let profile = try? JSONDecoder().decode(UserProfile.self, from: data) {
+            userProfile = profile
+        }
+    }
+    
+    private func saveProfile() {
+        if let profile = userProfile,
+           let data = try? JSONEncoder().encode(profile) {
+            userDefaults.set(data, forKey: profileKey)
+        } else {
+            userDefaults.removeObject(forKey: profileKey)
+        }
+    }
+    
+    private func loadInteractions() {
+        if let data = userDefaults.data(forKey: interactionsKey),
+           let interactions = try? JSONDecoder().decode([VideoInteraction].self, from: data) {
+            self.interactions = interactions
+        }
+    }
+    
+    private func saveInteractions() {
+        if let data = try? JSONEncoder().encode(interactions) {
+            userDefaults.set(data, forKey: interactionsKey)
+        }
+    }
+    
+    private func loadHistory() {
+        if let history = userDefaults.stringArray(forKey: historyKey) {
+            viewHistory = history
+        }
+    }
+    
+    private func saveHistory() {
+        userDefaults.set(viewHistory, forKey: historyKey)
+    }
+    
+    // MARK: - API Sync (for future implementation)
+    func syncToAPI() async {
+        // TODO: Send interactions to API when user is logged in
+        // This would batch send the local interactions to the server
+    }
+}
