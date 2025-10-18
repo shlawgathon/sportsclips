@@ -9,7 +9,7 @@ import SwiftUI
 
 struct LiveView: View {
     private let apiService = APIService.shared
-    @StateObject private var playerManager = VideoPlayerManager()
+    @StateObject private var playerManager = VideoPlayerManager.shared
     @StateObject private var localStorage = LocalStorageService.shared
     @State private var liveVideos: [VideoClip] = []
     @State private var currentIndex = 0
@@ -50,15 +50,15 @@ struct LiveView: View {
                                 )
                                 .containerRelativeFrame([.horizontal, .vertical])
                                 .id(index)
-                                .onAppear {
-                                    currentIndex = index
-                                    playerManager.playVideo(for: video.videoURL)
-                                    localStorage.recordView(videoId: video.id)
-                                    
-                                    if index >= liveVideos.count - 2 {
-                                        loadMoreVideos()
+                                    .onAppear {
+                                        currentIndex = index
+                                        playerManager.playVideo(for: video.videoURL, videoId: video.id)
+                                        localStorage.recordView(videoId: video.id)
+                                        
+                                        if index >= liveVideos.count - 2 {
+                                            loadMoreVideos()
+                                        }
                                     }
-                                }
                             }
                             
                             // Loading indicator
@@ -99,7 +99,7 @@ struct LiveView: View {
                     
                     // Auto-play first video
                     if !liveVideos.isEmpty {
-                        playerManager.playVideo(for: liveVideos[0].videoURL)
+                        playerManager.playVideo(for: liveVideos[0].videoURL, videoId: liveVideos[0].id)
                         localStorage.recordView(videoId: liveVideos[0].id)
                     }
                 }

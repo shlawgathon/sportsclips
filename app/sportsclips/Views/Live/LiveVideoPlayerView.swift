@@ -59,9 +59,9 @@ struct LiveVideoPlayerView: View {
             .onAppear {
                 setupPlayer()
             }
-            .onDisappear {
-                playerManager.pauseVideo(for: video.videoURL)
-            }
+        .onDisappear {
+            playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
+        }
         }
     }
     
@@ -91,15 +91,15 @@ struct LiveVideoPlayerView: View {
     }
     
     private func setupPlayer() {
-        player = playerManager.getPlayer(for: video.videoURL)
-        playerManager.playVideo(for: video.videoURL)
+        player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
+        playerManager.playVideo(for: video.videoURL, videoId: video.id)
     }
 }
 
 #Preview {
     LiveVideoPlayerView(
         video: VideoClip.mock,
-        playerManager: VideoPlayerManager(),
+        playerManager: VideoPlayerManager.shared,
         isLiked: .constant(false),
         showingCommentInput: .constant(false)
     )

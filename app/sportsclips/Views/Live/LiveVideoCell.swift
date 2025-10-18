@@ -312,6 +312,6 @@ struct LiveVideoCell: View {
 #Preview {
     LiveVideoCell(
         video: VideoClip.mock,
-        playerManager: VideoPlayerManager()
+        playerManager: VideoPlayerManager.shared
     )
 }
