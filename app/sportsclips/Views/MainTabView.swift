@@ -92,8 +92,8 @@ struct DraggableGlassMenu: View {
                 }
             )
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
         .background(
             ZStack {
                 // Ultra-thin glass effect following Apple HIG
@@ -116,8 +116,8 @@ struct DraggableGlassMenu: View {
             }
             .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
         )
-        .padding(.horizontal, 20)
-        .padding(.bottom, 34) // Account for home indicator
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8) // Minimal bottom padding
         .offset(y: dragOffset)
         .scaleEffect(isDragging ? 1.02 : 1.0)
         .animation(.spring(response: 0.4, dampingFraction: 0.7), value: isDragging)

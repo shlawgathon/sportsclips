@@ -36,15 +36,38 @@ struct VideoFeedView: View {
                         .foregroundColor(.white.opacity(0.7))
                 }
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(filteredVideos.enumerated()), id: \.element.id) { index, video in
-                                VideoPlayerView(video: video)
-                                    .frame(height: UIScreen.main.bounds.height)
+                GeometryReader { geometry in
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(filteredVideos.enumerated()), id: \.element.id) { index, video in
+                                    ZStack {
+                                        // Full-screen video player
+                                        VideoPlayerView(video: video)
+                                            .frame(width: geometry.size.width, height: geometry.size.height)
+                                            .clipped()
+                                        
+                                        // Video overlay with buttons and caption
+                                        VStack {
+                                            Spacer()
+                                            
+                                            HStack {
+                                                // Caption on the left
+                                                CaptionView(video: video)
+                                                
+                                                Spacer()
+                                                
+                                                // Action buttons on the right
+                                                VideoOverlayView(video: video)
+                                            }
+                                            .padding(.bottom, 60) // Account for smaller bottom menu
+                                        }
+                                    }
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
                                     .id(index)
                                     .onAppear {
-                                        // Play video when it appears on screen
+                                        // Update current index and play video
+                                        currentIndex = index
                                         playerManager.playVideo(for: video.videoURL)
                                         localStorage.recordView(videoId: video.id)
                                         
@@ -57,27 +80,36 @@ struct VideoFeedView: View {
                                         // Pause video when it disappears
                                         playerManager.pauseVideo(for: video.videoURL)
                                     }
-                            }
-                            
-                            // Loading indicator at bottom
-                            if isLoading {
-                                HStack {
-                                    Spacer()
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        .scaleEffect(1.2)
-                                    Spacer()
                                 }
-                                .frame(height: 100)
+                                
+                                // Loading indicator at bottom
+                                if isLoading {
+                                    HStack {
+                                        Spacer()
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(1.2)
+                                        Spacer()
+                                    }
+                                    .frame(width: geometry.size.width, height: 100)
+                                }
+                            }
+                        }
+                        .scrollTargetBehavior(.paging)
+                        .onChange(of: currentIndex) { _, newIndex in
+                            // Pause all videos when scrolling
+                            playerManager.pauseAllVideos()
+                            
+                            // Play the current video
+                            if newIndex < filteredVideos.count {
+                                let currentVideo = filteredVideos[newIndex]
+                                playerManager.playVideo(for: currentVideo.videoURL)
+                                localStorage.recordView(videoId: currentVideo.id)
                             }
                         }
                     }
-                    .scrollTargetBehavior(.paging)
-                    .onChange(of: currentIndex) { _, newIndex in
-                        // Pause all videos when scrolling
-                        playerManager.pauseAllVideos()
-                    }
                 }
+                .ignoresSafeArea()
             }
             
             // Sports filter bubbles at top
@@ -96,9 +128,9 @@ struct VideoFeedView: View {
                                 )
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.top, 50) // Account for status bar
+                    .padding(.top, 8) // Minimal top padding
                     
                     Spacer()
                 }
@@ -167,6 +199,12 @@ struct VideoFeedView: View {
             filteredVideos = videos.filter { $0.sport == selectedSport }
         }
         currentIndex = 0
+        
+        // Auto-play first video after filtering
+        if !filteredVideos.isEmpty {
+            playerManager.playVideo(for: filteredVideos[0].videoURL)
+            localStorage.recordView(videoId: filteredVideos[0].id)
+        }
     }
 }
 

@@ -15,10 +15,10 @@ struct VideoPlayerView: View {
     
     var body: some View {
         ZStack {
-            // Video player
+            // Video player - full screen
             if let player = player {
                 VideoPlayer(player: player)
-                    .aspectRatio(9/16, contentMode: .fit)
+                    .aspectRatio(9/16, contentMode: .fill)
                     .clipped()
                     .ignoresSafeArea()
             } else {
@@ -30,24 +30,7 @@ struct VideoPlayerView: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(1.5)
                     )
-            }
-            
-            // Overlay UI
-            VStack {
-                Spacer()
-                
-                HStack {
-                    // Left side - Caption
-                    CaptionView(video: video)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    Spacer()
-                    
-                    // Right side - Action buttons
-                    VideoOverlayView(video: video)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 100) // Account for tab bar
+                    .ignoresSafeArea()
             }
         }
         .onAppear {
