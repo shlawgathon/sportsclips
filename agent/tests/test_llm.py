@@ -291,54 +291,52 @@ class TestGeminiAgent:
         with pytest.raises(ValueError, match="No output hook registered"):
             agent.process_output(output)
 
-    @pytest.mark.asyncio
-    async def test_generate_placeholder(self):
-        """Test generate method (placeholder implementation)."""
-        agent = GeminiAgent()
+    @pytest.fixture
+    def agent_with_api(self):
+        """Create an agent with API key from environment for integration tests."""
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            pytest.skip("GEMINI_API_KEY not set in environment")
+        return GeminiAgent(api_key=api_key, model_name="gemini-2.5-flash")
 
-        text_input = agent.process_input("Test prompt", ModalityType.TEXT)
-        result = await agent.generate([text_input])
+    @pytest.mark.asyncio
+    async def test_generate_placeholder(self, agent_with_api):
+        """Test generate method (placeholder implementation)."""
+        text_input = agent_with_api.process_input("Test prompt", ModalityType.TEXT)
+        result = await agent_with_api.generate([text_input])
 
         assert isinstance(result, AgentOutput)
         assert result.modality == ModalityType.TEXT
 
     @pytest.mark.asyncio
-    async def test_generate_text_convenience(self):
+    async def test_generate_text_convenience(self, agent_with_api):
         """Test generate_text convenience method."""
-        agent = GeminiAgent()
-
-        result = await agent.generate_text("What is AI?")
+        result = await agent_with_api.generate_text("What is AI?")
 
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_generate_from_video_convenience(self):
+    async def test_generate_from_video_convenience(self, agent_with_api):
         """Test generate_from_video convenience method."""
-        agent = GeminiAgent()
-
-        result = await agent.generate_from_video(
+        result = await agent_with_api.generate_from_video(
             "/path/to/video.mp4", "Describe this video"
         )
 
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_generate_from_audio_convenience(self):
+    async def test_generate_from_audio_convenience(self, agent_with_api):
         """Test generate_from_audio convenience method."""
-        agent = GeminiAgent()
-
-        result = await agent.generate_from_audio(
+        result = await agent_with_api.generate_from_audio(
             "/path/to/audio.mp3", "Transcribe this"
         )
 
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_generate_multimodal(self):
+    async def test_generate_multimodal(self, agent_with_api):
         """Test generate_multimodal convenience method."""
-        agent = GeminiAgent()
-
-        result = await agent.generate_multimodal(
+        result = await agent_with_api.generate_multimodal(
             text_prompts=["Analyze these"],
             images=["/path/to/img1.jpg", "/path/to/img2.jpg"],
             videos=["/path/to/video.mp4"],
@@ -531,22 +529,30 @@ class TestOutputHookEdgeCases:
 class TestAgentGeneration:
     """Test agent generation methods comprehensively."""
 
-    @pytest.mark.asyncio
-    async def test_generate_with_output_modality(self):
-        """Test generate with different output modality."""
-        agent = GeminiAgent()
-        text_input = agent.process_input("Test", ModalityType.TEXT)
+    @pytest.fixture
+    def agent_with_api(self):
+        """Create an agent with API key from environment for integration tests."""
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            pytest.skip("GEMINI_API_KEY not set in environment")
+        return GeminiAgent(api_key=api_key, model_name="gemini-2.5-flash")
 
-        output = await agent.generate([text_input], output_modality=ModalityType.VIDEO)
+    @pytest.mark.asyncio
+    async def test_generate_with_output_modality(self, agent_with_api):
+        """Test generate with different output modality."""
+        text_input = agent_with_api.process_input("Test", ModalityType.TEXT)
+
+        output = await agent_with_api.generate(
+            [text_input], output_modality=ModalityType.VIDEO
+        )
         assert output.modality == ModalityType.VIDEO
 
     @pytest.mark.asyncio
-    async def test_generate_with_config(self):
+    async def test_generate_with_config(self, agent_with_api):
         """Test generate with generation config passed through."""
-        agent = GeminiAgent()
-        text_input = agent.process_input("Test", ModalityType.TEXT)
+        text_input = agent_with_api.process_input("Test", ModalityType.TEXT)
 
-        output = await agent.generate(
+        output = await agent_with_api.generate(
             [text_input], temperature=0.7, max_tokens=100, top_p=0.9
         )
         assert output.metadata["config"]["temperature"] == 0.7
@@ -554,51 +560,47 @@ class TestAgentGeneration:
         assert output.metadata["config"]["top_p"] == 0.9
 
     @pytest.mark.asyncio
-    async def test_generate_with_multiple_inputs(self):
+    async def test_generate_with_multiple_inputs(self, agent_with_api):
         """Test generate with multiple inputs."""
-        agent = GeminiAgent()
-        text_input = agent.process_input("Describe this", ModalityType.TEXT)
-        video_input = agent.process_input(b"video data", ModalityType.VIDEO)
-        image_input = agent.process_input(b"image data", ModalityType.IMAGE)
+        text_input = agent_with_api.process_input("Describe this", ModalityType.TEXT)
+        video_input = agent_with_api.process_input(b"video data", ModalityType.VIDEO)
+        image_input = agent_with_api.process_input(b"image data", ModalityType.IMAGE)
 
-        output = await agent.generate([text_input, video_input, image_input])
+        output = await agent_with_api.generate([text_input, video_input, image_input])
         assert output.metadata["inputs"] == 3
 
     @pytest.mark.asyncio
-    async def test_generate_text_with_context(self):
+    async def test_generate_text_with_context(self, agent_with_api):
         """Test generate_text with additional context inputs."""
-        agent = GeminiAgent()
-        image_input = agent.process_input(b"image data", ModalityType.IMAGE)
+        image_input = agent_with_api.process_input(b"image data", ModalityType.IMAGE)
 
-        result = await agent.generate_text(
+        result = await agent_with_api.generate_text(
             "What's in this image?", context_inputs=[image_input]
         )
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_generate_from_video_with_bytes(self):
+    async def test_generate_from_video_with_bytes(self, agent_with_api):
         """Test generate_from_video with bytes input."""
-        agent = GeminiAgent()
         video_bytes = b"fake video data"
 
-        result = await agent.generate_from_video(video_bytes, "Describe this")
+        result = await agent_with_api.generate_from_video(video_bytes, "Describe this")
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_generate_from_audio_with_bytes(self):
+    async def test_generate_from_audio_with_bytes(self, agent_with_api):
         """Test generate_from_audio with bytes input."""
-        agent = GeminiAgent()
         audio_bytes = b"fake audio data"
 
-        result = await agent.generate_from_audio(audio_bytes, "Transcribe this")
+        result = await agent_with_api.generate_from_audio(
+            audio_bytes, "Transcribe this"
+        )
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_generate_multimodal_with_all_modalities(self):
+    async def test_generate_multimodal_with_all_modalities(self, agent_with_api):
         """Test generate_multimodal with all input types."""
-        agent = GeminiAgent()
-
-        result = await agent.generate_multimodal(
+        result = await agent_with_api.generate_multimodal(
             text_prompts=["First prompt", "Second prompt"],
             images=["img1.jpg", "img2.jpg"],
             videos=["vid.mp4"],
@@ -607,19 +609,15 @@ class TestAgentGeneration:
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_generate_multimodal_text_only(self):
+    async def test_generate_multimodal_text_only(self, agent_with_api):
         """Test generate_multimodal with only text."""
-        agent = GeminiAgent()
-
-        result = await agent.generate_multimodal(text_prompts=["Just text"])
+        result = await agent_with_api.generate_multimodal(text_prompts=["Just text"])
         assert isinstance(result, str)
 
     @pytest.mark.asyncio
-    async def test_generate_multimodal_with_video_output(self):
+    async def test_generate_multimodal_with_video_output(self, agent_with_api):
         """Test generate_multimodal requesting video output."""
-        agent = GeminiAgent()
-
-        result = await agent.generate_multimodal(
+        result = await agent_with_api.generate_multimodal(
             text_prompts=["Generate video"],
             output_modality=ModalityType.VIDEO,
         )
@@ -690,9 +688,13 @@ class TestAgentInitialization:
 
     def test_agent_initialization_custom_model(self):
         """Test agent with custom model name."""
-        agent = GeminiAgent(model_name="gemini-pro")
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            pytest.skip("GEMINI_API_KEY not set in environment")
 
-        assert agent.model_name == "gemini-1.5-flash"
+        agent = GeminiAgent(api_key=api_key, model_name="gemini-2.5-flash")
+
+        assert agent.model_name == "gemini-2.5-flash"
 
 
 class TestEndToEndGeminiAPI:
