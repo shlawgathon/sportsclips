@@ -35,6 +35,11 @@ fun Application.configureDatabases()
     @Serializable data class CreateClipRequest(val s3Key: String, val title: String, val description: String)
     @Serializable data class CommentRequest(val text: String)
 
+    // Serializable wrappers for responses
+    @Serializable data class LiveListItem(val id: String, val live: LiveVideo)
+    @Serializable data class CommentItem(val id: String, val comment: Comment)
+    @Serializable data class RecommendationItem(val id: String, val score: Double, val clip: Clip)
+
     routing {
         // ========== Auth ==========
         post("/auth/register") {
@@ -65,7 +70,7 @@ fun Application.configureDatabases()
         authenticate {
             // ========== Live Video ==========
             get("/live") {
-                val lives = liveService.listAll().map { (id, live) -> mapOf("id" to id, "live" to live) }
+                val lives = liveService.listAll().map { (id, live) -> LiveListItem(id = id, live = live) }
                 call.respond(lives)
             }
             get("/live/{id}") {
@@ -126,7 +131,7 @@ fun Application.configureDatabases()
             }
             get("/clips/{id}/comments") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                val comments = commentService.listByClip(id).map { (cid, c) -> mapOf("id" to cid, "comment" to c) }
+                val comments = commentService.listByClip(id).map { (cid, c) -> CommentItem(id = cid, comment = c) }
                 call.respond(comments)
             }
 
@@ -134,16 +139,15 @@ fun Application.configureDatabases()
             get("/clips/{id}/recommendations") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val target = clipService.get(id) ?: return@get call.respond(HttpStatusCode.NotFound)
-                val targetEmb = target.embedding ?: return@get call.respond(emptyList<Map<String, Any>>())
+                val targetEmb = target.embedding ?: return@get call.respond(emptyList<RecommendationItem>())
                 val all = clipService.listAll()
                 val scored = all.filter { it.first != id && (it.second.embedding != null) }
                     .map { (cid, clip) ->
                         val sim = Recommender.cosineSimilarity(targetEmb, clip.embedding!!)
-                        cid to (clip to sim)
+                        RecommendationItem(id = cid, score = sim, clip = clip)
                     }
-                    .sortedByDescending { it.second.second }
+                    .sortedByDescending { it.score }
                     .take(10)
-                    .map { (cid, pair) -> mapOf("id" to cid, "score" to pair.second, "clip" to pair.first) }
                 call.respond(scored)
             }
         }
