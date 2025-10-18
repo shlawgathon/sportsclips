@@ -6,8 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "flask>=3.1.2",
+    "flask-sock>=0.7.0",
     "yt-dlp>=2025.10.14",
     "google-generativeai>=0.8.3",
+    "pillow>=12.0.0",
 ]
 
 [dependency-groups]
