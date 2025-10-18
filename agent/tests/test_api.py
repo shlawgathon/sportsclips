@@ -119,7 +119,7 @@ class TestVideoProcessing:
         call_kwargs = mock_pipeline.process_video_url.call_args[1]
         assert call_kwargs["video_url"] == test_url
         assert call_kwargs["ws"] == mock_ws
-        assert call_kwargs["is_live"] == False
+        assert not call_kwargs["is_live"]
 
     @patch("src.api.pipeline")
     def test_process_video_sends_error_on_exception(self, mock_pipeline):
