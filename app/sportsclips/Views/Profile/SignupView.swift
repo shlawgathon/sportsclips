@@ -32,8 +32,8 @@ struct SignupView: View {
             VStack(spacing: 30) {
                 Spacer()
                 
-                // Logo
-                AnimatedSportsLogo()
+                // Logo - 3D Rotating Carousel
+                Rotating3DLogo()
                     .scaleEffect(0.75)
                 
                 Text("Join Sports Clips")
