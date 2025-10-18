@@ -1,0 +1,484 @@
+"""
+Gemini Agent - Flexible scaffolding for multimodal AI interactions.
+
+This module provides a flexible agent implementation that supports various input
+and output modalities (text, image, video, audio) through a hook-based system.
+"""
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import Any, Optional, Union
+
+
+class ModalityType(Enum):
+    """Supported modality types for Gemini agent."""
+
+    TEXT = "text"
+    IMAGE = "image"
+    VIDEO = "video"
+    AUDIO = "audio"
+
+
+@dataclass
+class AgentInput:
+    """Container for agent input with modality information."""
+
+    modality: ModalityType
+    data: Any  # Can be str, bytes, Path, or any custom type
+    metadata: Optional[dict[str, Any]] = None
+
+    def __repr__(self) -> str:
+        data_preview = (
+            str(self.data)[:50] + "..."
+            if isinstance(self.data, str) and len(str(self.data)) > 50
+            else self.data
+        )
+        return f"AgentInput(modality={self.modality}, data={data_preview}, metadata={self.metadata})"
+
+
+@dataclass
+class AgentOutput:
+    """Container for agent output with modality information."""
+
+    modality: ModalityType
+    data: Any  # Can be str, bytes, or any custom type
+    metadata: Optional[dict[str, Any]] = None
+
+    def __repr__(self) -> str:
+        data_preview = (
+            str(self.data)[:50] + "..."
+            if isinstance(self.data, str) and len(str(self.data)) > 50
+            else self.data
+        )
+        return f"AgentOutput(modality={self.modality}, data={data_preview}, metadata={self.metadata})"
+
+
+class InputHook(ABC):
+    """Abstract base class for input processing hooks."""
+
+    @abstractmethod
+    def process(self, raw_input: Any) -> AgentInput:
+        """
+        Process raw input into standardized AgentInput format.
+
+        Args:
+            raw_input: Raw input data in any format
+
+        Returns:
+            AgentInput: Processed input ready for the agent
+        """
+        pass
+
+    @abstractmethod
+    def supports_modality(self) -> ModalityType:
+        """Return the modality type this hook handles."""
+        pass
+
+
+class OutputHook(ABC):
+    """Abstract base class for output processing hooks."""
+
+    @abstractmethod
+    def process(self, agent_output: AgentOutput) -> Any:
+        """
+        Process agent output into desired format.
+
+        Args:
+            agent_output: Output from the agent
+
+        Returns:
+            Any: Processed output in the desired format
+        """
+        pass
+
+    @abstractmethod
+    def supports_modality(self) -> ModalityType:
+        """Return the modality type this hook handles."""
+        pass
+
+
+class TextInputHook(InputHook):
+    """Hook for processing text input."""
+
+    def process(self, raw_input: str) -> AgentInput:
+        """Process text input."""
+        return AgentInput(modality=ModalityType.TEXT, data=raw_input)
+
+    def supports_modality(self) -> ModalityType:
+        return ModalityType.TEXT
+
+
+class VideoInputHook(InputHook):
+    """Hook for processing video input."""
+
+    def process(self, raw_input: Union[bytes, Path, str]) -> AgentInput:
+        """
+        Process video input.
+
+        Args:
+            raw_input: Can be bytes, file path, or URL
+
+        Returns:
+            AgentInput with video data
+        """
+        metadata = {}
+        if isinstance(raw_input, (Path, str)):
+            metadata["source"] = str(raw_input)
+            # In actual implementation, you might read the file or validate URL
+        return AgentInput(
+            modality=ModalityType.VIDEO, data=raw_input, metadata=metadata
+        )
+
+    def supports_modality(self) -> ModalityType:
+        return ModalityType.VIDEO
+
+
+class AudioInputHook(InputHook):
+    """Hook for processing audio input."""
+
+    def process(self, raw_input: Union[bytes, Path, str]) -> AgentInput:
+        """
+        Process audio input.
+
+        Args:
+            raw_input: Can be bytes, file path, or URL
+
+        Returns:
+            AgentInput with audio data
+        """
+        metadata = {}
+        if isinstance(raw_input, (Path, str)):
+            metadata["source"] = str(raw_input)
+        return AgentInput(
+            modality=ModalityType.AUDIO, data=raw_input, metadata=metadata
+        )
+
+    def supports_modality(self) -> ModalityType:
+        return ModalityType.AUDIO
+
+
+class ImageInputHook(InputHook):
+    """Hook for processing image input."""
+
+    def process(self, raw_input: Union[bytes, Path, str]) -> AgentInput:
+        """
+        Process image input.
+
+        Args:
+            raw_input: Can be bytes, file path, or URL
+
+        Returns:
+            AgentInput with image data
+        """
+        metadata = {}
+        if isinstance(raw_input, (Path, str)):
+            metadata["source"] = str(raw_input)
+        return AgentInput(
+            modality=ModalityType.IMAGE, data=raw_input, metadata=metadata
+        )
+
+    def supports_modality(self) -> ModalityType:
+        return ModalityType.IMAGE
+
+
+class TextOutputHook(OutputHook):
+    """Hook for processing text output."""
+
+    def process(self, agent_output: AgentOutput) -> str:
+        """Process text output."""
+        return str(agent_output.data)
+
+    def supports_modality(self) -> ModalityType:
+        return ModalityType.TEXT
+
+
+class VideoOutputHook(OutputHook):
+    """Hook for processing video output."""
+
+    def process(self, agent_output: AgentOutput) -> bytes:
+        """
+        Process video output.
+
+        Returns:
+            bytes: Video data as bytes
+        """
+        if isinstance(agent_output.data, bytes):
+            return agent_output.data
+        # In actual implementation, handle different output formats
+        return bytes()
+
+    def supports_modality(self) -> ModalityType:
+        return ModalityType.VIDEO
+
+
+class AudioOutputHook(OutputHook):
+    """Hook for processing audio output."""
+
+    def process(self, agent_output: AgentOutput) -> bytes:
+        """
+        Process audio output.
+
+        Returns:
+            bytes: Audio data as bytes
+        """
+        if isinstance(agent_output.data, bytes):
+            return agent_output.data
+        return bytes()
+
+    def supports_modality(self) -> ModalityType:
+        return ModalityType.AUDIO
+
+
+class ImageOutputHook(OutputHook):
+    """Hook for processing image output."""
+
+    def process(self, agent_output: AgentOutput) -> bytes:
+        """
+        Process image output.
+
+        Returns:
+            bytes: Image data as bytes
+        """
+        if isinstance(agent_output.data, bytes):
+            return agent_output.data
+        return bytes()
+
+    def supports_modality(self) -> ModalityType:
+        return ModalityType.IMAGE
+
+
+class GeminiAgent:
+    """
+    Flexible Gemini agent with hook-based input/output processing.
+
+    This agent supports multiple modalities (text, image, video, audio) through
+    a hook system that allows customization of input processing and output formatting.
+    """
+
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-pro"):
+        """
+        Initialize the Gemini agent.
+
+        Args:
+            api_key: Google API key for Gemini (optional, can use env var)
+            model_name: Name of the Gemini model to use
+        """
+        self.api_key = api_key
+        self.model_name = model_name
+        self.input_hooks: dict[ModalityType, InputHook] = {}
+        self.output_hooks: dict[ModalityType, OutputHook] = {}
+        self._model = None  # Placeholder for actual Gemini model instance
+
+        # Register default hooks
+        self._register_default_hooks()
+
+    def _register_default_hooks(self) -> None:
+        """Register default input and output hooks for all modalities."""
+        # Input hooks
+        self.register_input_hook(TextInputHook())
+        self.register_input_hook(VideoInputHook())
+        self.register_input_hook(AudioInputHook())
+        self.register_input_hook(ImageInputHook())
+
+        # Output hooks
+        self.register_output_hook(TextOutputHook())
+        self.register_output_hook(VideoOutputHook())
+        self.register_output_hook(AudioOutputHook())
+        self.register_output_hook(ImageOutputHook())
+
+    def register_input_hook(self, hook: InputHook) -> None:
+        """
+        Register a custom input hook.
+
+        Args:
+            hook: Input hook to register
+        """
+        self.input_hooks[hook.supports_modality()] = hook
+
+    def register_output_hook(self, hook: OutputHook) -> None:
+        """
+        Register a custom output hook.
+
+        Args:
+            hook: Output hook to register
+        """
+        self.output_hooks[hook.supports_modality()] = hook
+
+    def process_input(self, raw_input: Any, modality: ModalityType) -> AgentInput:
+        """
+        Process raw input using the appropriate hook.
+
+        Args:
+            raw_input: Raw input data
+            modality: Type of modality
+
+        Returns:
+            AgentInput: Processed input
+
+        Raises:
+            ValueError: If no hook is registered for the modality
+        """
+        if modality not in self.input_hooks:
+            raise ValueError(f"No input hook registered for modality: {modality}")
+
+        hook = self.input_hooks[modality]
+        return hook.process(raw_input)
+
+    def process_output(self, agent_output: AgentOutput) -> Any:
+        """
+        Process agent output using the appropriate hook.
+
+        Args:
+            agent_output: Output from the agent
+
+        Returns:
+            Any: Processed output
+
+        Raises:
+            ValueError: If no hook is registered for the modality
+        """
+        if agent_output.modality not in self.output_hooks:
+            raise ValueError(
+                f"No output hook registered for modality: {agent_output.modality}"
+            )
+
+        hook = self.output_hooks[agent_output.modality]
+        return hook.process(agent_output)
+
+    async def generate(
+        self,
+        inputs: list[AgentInput],
+        output_modality: ModalityType = ModalityType.TEXT,
+        **generation_config: Any,
+    ) -> AgentOutput:
+        """
+        Generate output from inputs using the Gemini model.
+
+        Args:
+            inputs: List of processed inputs
+            output_modality: Desired output modality
+            **generation_config: Additional generation configuration
+
+        Returns:
+            AgentOutput: Generated output
+
+        Note:
+            This is a placeholder implementation. Actual Gemini API calls
+            should be implemented here.
+        """
+        # TODO: Implement actual Gemini API call
+        # For now, return a placeholder response
+        return AgentOutput(
+            modality=output_modality,
+            data="Placeholder response - implement Gemini API integration",
+            metadata={"inputs": len(inputs), "config": generation_config},
+        )
+
+    async def generate_text(
+        self, prompt: str, context_inputs: Optional[list[AgentInput]] = None
+    ) -> str:
+        """
+        Convenience method for text generation.
+
+        Args:
+            prompt: Text prompt
+            context_inputs: Optional additional context (images, videos, etc.)
+
+        Returns:
+            str: Generated text response
+        """
+        inputs = [self.process_input(prompt, ModalityType.TEXT)]
+        if context_inputs:
+            inputs.extend(context_inputs)
+
+        output = await self.generate(inputs, output_modality=ModalityType.TEXT)
+        return self.process_output(output)
+
+    async def generate_from_video(
+        self, video_input: Union[bytes, Path, str], prompt: str
+    ) -> str:
+        """
+        Convenience method for video understanding.
+
+        Args:
+            video_input: Video data (bytes, path, or URL)
+            prompt: Question or instruction about the video
+
+        Returns:
+            str: Generated text response
+        """
+        inputs = [
+            self.process_input(video_input, ModalityType.VIDEO),
+            self.process_input(prompt, ModalityType.TEXT),
+        ]
+
+        output = await self.generate(inputs, output_modality=ModalityType.TEXT)
+        return self.process_output(output)
+
+    async def generate_from_audio(
+        self, audio_input: Union[bytes, Path, str], prompt: str
+    ) -> str:
+        """
+        Convenience method for audio understanding.
+
+        Args:
+            audio_input: Audio data (bytes, path, or URL)
+            prompt: Question or instruction about the audio
+
+        Returns:
+            str: Generated text response
+        """
+        inputs = [
+            self.process_input(audio_input, ModalityType.AUDIO),
+            self.process_input(prompt, ModalityType.TEXT),
+        ]
+
+        output = await self.generate(inputs, output_modality=ModalityType.TEXT)
+        return self.process_output(output)
+
+    async def generate_multimodal(
+        self,
+        text_prompts: list[str],
+        images: Optional[list[Union[bytes, Path, str]]] = None,
+        videos: Optional[list[Union[bytes, Path, str]]] = None,
+        audios: Optional[list[Union[bytes, Path, str]]] = None,
+        output_modality: ModalityType = ModalityType.TEXT,
+    ) -> Any:
+        """
+        Convenience method for multimodal generation.
+
+        Args:
+            text_prompts: List of text prompts
+            images: Optional list of images
+            videos: Optional list of videos
+            audios: Optional list of audio files
+            output_modality: Desired output modality
+
+        Returns:
+            Any: Generated output (processed through output hook)
+        """
+        inputs: list[AgentInput] = []
+
+        # Process all text prompts
+        for prompt in text_prompts:
+            inputs.append(self.process_input(prompt, ModalityType.TEXT))
+
+        # Process images
+        if images:
+            for img in images:
+                inputs.append(self.process_input(img, ModalityType.IMAGE))
+
+        # Process videos
+        if videos:
+            for vid in videos:
+                inputs.append(self.process_input(vid, ModalityType.VIDEO))
+
+        # Process audio
+        if audios:
+            for aud in audios:
+                inputs.append(self.process_input(aud, ModalityType.AUDIO))
+
+        output = await self.generate(inputs, output_modality=output_modality)
+        return self.process_output(output)
