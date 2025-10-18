@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Generator
 
@@ -33,6 +34,9 @@ def is_live_stream(url: str) -> bool:
     Returns:
         bool: True if the stream is live, False otherwise
     """
+    # Create isolated cache directory for this yt-dlp instance
+    temp_cache_dir = tempfile.mkdtemp(prefix=f"ytdlp_cache_{uuid.uuid4().hex[:8]}_")
+
     try:
         cmd = [
             "yt-dlp",
@@ -41,6 +45,9 @@ def is_live_stream(url: str) -> bool:
             "1",
             "--no-warnings",
             "--quiet",
+            "--cache-dir",
+            temp_cache_dir,  # Use isolated cache directory
+            "--no-part",  # Don't use .part files to avoid collisions
         ]
 
         # Add cookies if available
@@ -75,6 +82,14 @@ def is_live_stream(url: str) -> bool:
     except Exception:
         # If anything fails, assume not live
         return False
+    finally:
+        # Cleanup isolated cache directory
+        try:
+            import shutil
+
+            shutil.rmtree(temp_cache_dir)
+        except Exception:
+            pass
 
 
 def stream_and_chunk_live(
@@ -100,10 +115,16 @@ def stream_and_chunk_live(
     Yields:
         bytes: Video chunk data (complete MP4 files)
     """
-    temp_dir = tempfile.mkdtemp(prefix="live_stream_")
+    # Create unique temp directory with UUID to avoid collisions
+    unique_id = uuid.uuid4().hex[:8]
+    temp_dir = tempfile.mkdtemp(prefix=f"live_stream_{unique_id}_")
 
     try:
         temp_path = Path(temp_dir)
+
+        # Create isolated cache directory for this yt-dlp instance
+        cache_dir = temp_path / "yt-dlp-cache"
+        cache_dir.mkdir()
 
         # Build yt-dlp command to stream from live start
         ytdlp_cmd = [
@@ -113,6 +134,9 @@ def stream_and_chunk_live(
             "-",  # Output to stdout
             "--quiet",
             "--no-warnings",
+            "--cache-dir",
+            str(cache_dir),  # Use isolated cache directory
+            "--no-part",  # Don't use .part files to avoid collisions
         ]
 
         # Add cookies if available
@@ -164,11 +188,13 @@ def stream_and_chunk_live(
         )
 
         # Start ffmpeg process, reading from yt-dlp's output
+        # Use temp_dir as cwd to prevent -Frag files from conflicting in concurrent operations
         ffmpeg_process = subprocess.Popen(
             ffmpeg_cmd,
             stdin=ytdlp_process.stdout,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            cwd=temp_dir,
         )
 
         # Close yt-dlp stdout in parent to allow proper pipe behavior
@@ -306,75 +332,90 @@ def stream_video_chunks(
         ...     # Gets chunks from beginning of stream
         ...     pass
     """
-    # Build yt-dlp command
-    cmd = [
-        "yt-dlp",
-        "-f",
-        format_selector,
-        "-o",
-        "-",  # Output to stdout
-        "--quiet",  # Suppress yt-dlp output
-        "--no-warnings",
-    ]
-
-    # Add cookies if available
-    cookies_path = get_cookies_path()
-    if cookies_path:
-        cmd.extend(["--cookies", cookies_path])
-
-    # Add live stream handling options
-    if live_from_start:
-        cmd.append("--live-from-start")
-    else:
-        # Default: jump to live edge for live streams
-        cmd.append("--no-live-from-start")
-
-    # Add HLS/MPEGTS support for live streams
-    cmd.append("--hls-use-mpegts")
-
-    # Add any additional options
-    if additional_options:
-        cmd.extend(additional_options)
-
-    cmd.append(url)
+    # Create isolated cache directory for this yt-dlp instance
+    temp_cache_dir = tempfile.mkdtemp(prefix=f"ytdlp_cache_{uuid.uuid4().hex[:8]}_")
 
     try:
-        # Start yt-dlp process with stdout as pipe
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=chunk_size
-        )
+        # Build yt-dlp command
+        cmd = [
+            "yt-dlp",
+            "-f",
+            format_selector,
+            "-o",
+            "-",  # Output to stdout
+            "--quiet",  # Suppress yt-dlp output
+            "--no-warnings",
+            "--cache-dir",
+            temp_cache_dir,  # Use isolated cache directory
+            "--no-part",  # Don't use .part files to avoid collisions
+        ]
 
-        # Ensure stdout is available
-        if process.stdout is None:
-            raise RuntimeError("Failed to open stdout pipe")
-        if process.stderr is None:
-            raise RuntimeError("Failed to open stderr pipe")
+        # Add cookies if available
+        cookies_path = get_cookies_path()
+        if cookies_path:
+            cmd.extend(["--cookies", cookies_path])
 
-        # Stream chunks from stdout
-        while True:
-            chunk = process.stdout.read(chunk_size)
-            if not chunk:
-                break
-            yield chunk
+        # Add live stream handling options
+        if live_from_start:
+            cmd.append("--live-from-start")
+        else:
+            # Default: jump to live edge for live streams
+            cmd.append("--no-live-from-start")
 
-        # Wait for process to complete and check for errors
-        process.wait()
-        if process.returncode != 0:
-            stderr_output = process.stderr.read().decode("utf-8")
-            raise RuntimeError(
-                f"yt-dlp failed with return code {process.returncode}: {stderr_output}"
+        # Add HLS/MPEGTS support for live streams
+        cmd.append("--hls-use-mpegts")
+
+        # Add any additional options
+        if additional_options:
+            cmd.extend(additional_options)
+
+        cmd.append(url)
+
+        try:
+            # Start yt-dlp process with stdout as pipe
+            process = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=chunk_size
             )
 
-    except FileNotFoundError:
-        raise RuntimeError(
-            "yt-dlp is not installed. Install it with: pip install yt-dlp"
-        ) from None
-    except Exception:
-        # Clean up process if still running
-        if "process" in locals() and process.poll() is None:
-            process.kill()
+            # Ensure stdout is available
+            if process.stdout is None:
+                raise RuntimeError("Failed to open stdout pipe")
+            if process.stderr is None:
+                raise RuntimeError("Failed to open stderr pipe")
+
+            # Stream chunks from stdout
+            while True:
+                chunk = process.stdout.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+
+            # Wait for process to complete and check for errors
             process.wait()
-        raise
+            if process.returncode != 0:
+                stderr_output = process.stderr.read().decode("utf-8")
+                raise RuntimeError(
+                    f"yt-dlp failed with return code {process.returncode}: {stderr_output}"
+                )
+
+        except FileNotFoundError:
+            raise RuntimeError(
+                "yt-dlp is not installed. Install it with: pip install yt-dlp"
+            ) from None
+        except Exception:
+            # Clean up process if still running
+            if "process" in locals() and process.poll() is None:
+                process.kill()
+                process.wait()
+            raise
+    finally:
+        # Cleanup isolated cache directory
+        try:
+            import shutil
+
+            shutil.rmtree(temp_cache_dir)
+        except Exception:
+            pass
 
 
 def stream_and_chunk_video(
@@ -417,7 +458,9 @@ def stream_and_chunk_video(
         )
     else:
         # For non-live streams, download and chunk quickly
-        temp_dir = tempfile.mkdtemp(prefix="video_stream_")
+        # Create unique temp directory with UUID to avoid collisions
+        unique_id = uuid.uuid4().hex[:8]
+        temp_dir = tempfile.mkdtemp(prefix=f"video_stream_{unique_id}_")
 
         try:
             temp_path = Path(temp_dir)
@@ -453,11 +496,13 @@ def stream_and_chunk_video(
                 str(output_pattern),
             ]
 
+            # Use temp_dir as cwd to prevent -Frag files from conflicting in concurrent operations
             subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=True,
+                cwd=temp_dir,
             )
 
             # Yield all chunks
