@@ -116,6 +116,12 @@ class VideoPipeline:
                 # Apply modulation functions
                 chunk_data, metadata = self._apply_modulations(chunk_data, metadata)
 
+                # Skip if chunk was filtered out (empty data)
+                if len(chunk_data) == 0:
+                    logger.info(f"Chunk {chunk_index + 1} was filtered out, skipping")
+                    chunk_index += 1
+                    continue
+
                 # Create and send snippet message
                 title = f"Chunk {chunk_index + 1}"
                 description = (
@@ -156,3 +162,24 @@ def create_default_pipeline(chunk_duration: int = 15) -> VideoPipeline:
         Configured VideoPipeline instance
     """
     return VideoPipeline(chunk_duration=chunk_duration)
+
+
+def create_highlight_pipeline(chunk_duration: int = 3) -> VideoPipeline:
+    """
+    Create a pipeline configured for highlight detection.
+
+    This pipeline processes videos in 3-second chunks and uses an LLM to
+    determine whether each chunk contains a highlight moment. Only highlights
+    are passed through to the client.
+
+    Args:
+        chunk_duration: Duration of each video chunk in seconds (default: 3)
+
+    Returns:
+        Configured VideoPipeline instance with highlight detection
+    """
+    from .steps import is_highlight_step
+
+    pipeline = VideoPipeline(chunk_duration=chunk_duration)
+    pipeline.add_modulation(is_highlight_step)
+    return pipeline
