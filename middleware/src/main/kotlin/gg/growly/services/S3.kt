@@ -25,9 +25,23 @@ class S3Utility(
     private val region: String? = null
 ) {
     private val s3Client: S3Client by lazy {
-        val endpoint = Env.get("R2_ENDPOINT")
-            ?: Env.get("AWS_S3_ENDPOINT")
-            ?: Env.get("AWS_S3_BUCKET_ENDPOINT")?.substringBeforeLast('/') // allow bucket endpoint var but trim bucket suffix
+        fun deriveEndpoint(): String? {
+            val r2 = Env.get("R2_ENDPOINT")
+            if (!r2.isNullOrBlank()) return r2
+            val s3 = Env.get("AWS_S3_ENDPOINT")
+            if (!s3.isNullOrBlank()) return s3
+            val bucketEp = Env.get("AWS_S3_BUCKET_ENDPOINT")?.trimEnd('/')
+            if (!bucketEp.isNullOrBlank()) {
+                val protoIdx = bucketEp.indexOf("://")
+                if (protoIdx > 0) {
+                    val lastSlash = bucketEp.lastIndexOf('/')
+                    return if (lastSlash > protoIdx + 2) bucketEp.substring(0, lastSlash) else bucketEp
+                }
+            }
+            return null
+        }
+
+        val endpoint = deriveEndpoint()
         val accessKeyId = Env.get("R2_ACCESS_KEY_ID") ?: Env.get("AWS_ACCESS_KEY_ID")
         val secretAccessKey = Env.get("R2_SECRET_ACCESS_KEY") ?: Env.get("AWS_SECRET_ACCESS_KEY")
         val r2Region = Env.get("R2_REGION", "auto")
