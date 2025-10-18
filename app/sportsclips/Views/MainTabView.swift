@@ -120,7 +120,7 @@ struct DraggableGlassMenu: View {
             .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
         )
         .padding(.horizontal, 16)
-        .padding(.bottom, 0) // No bottom padding - stick to bottom
+        .padding(.bottom, -30) // No bottom padding - stick to bottom
         .offset(y: dragOffset)
         .scaleEffect(isDragging ? 1.02 : 1.0)
         .animation(.spring(response: 0.4, dampingFraction: 0.7), value: isDragging)

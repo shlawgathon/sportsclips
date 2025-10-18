@@ -9,13 +9,15 @@ import SwiftUI
 
 struct VideoOverlayView: View {
     let video: VideoClip
+    let isLiked: Bool
     @StateObject private var localStorage = LocalStorageService.shared
-    @State private var isLiked = false
     @State private var likeCount: Int
     
-    init(video: VideoClip) {
+    init(video: VideoClip, isLiked: Bool = false) {
         self.video = video
-        self._likeCount = State(initialValue: video.likes)
+        self.isLiked = isLiked
+        // Calculate like count based on current state
+        self._likeCount = State(initialValue: video.likes + (isLiked ? 1 : 0))
     }
     
     var body: some View {
@@ -25,18 +27,13 @@ struct VideoOverlayView: View {
                 icon: isLiked ? "heart.fill" : "heart",
                 count: likeCount
             ) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                    isLiked.toggle()
-                    likeCount += isLiked ? 1 : -1
-                    
-                    // Record interaction in local storage
-                    localStorage.recordInteraction(
-                        videoId: video.id,
-                        liked: isLiked,
-                        commented: false,
-                        shared: false
-                    )
-                }
+                // Record interaction in local storage
+                localStorage.recordInteraction(
+                    videoId: video.id,
+                    liked: !isLiked, // Toggle the current state
+                    commented: false,
+                    shared: false
+                )
             }
             .foregroundColor(isLiked ? .red : .white)
             
@@ -68,13 +65,7 @@ struct VideoOverlayView: View {
                 )
             }
         }
-        .onAppear {
-            // Load current like state from local storage
-            if let interaction = localStorage.getInteraction(for: video.id) {
-                isLiked = interaction.liked
-                likeCount = video.likes + (interaction.liked ? 1 : 0)
-            }
-        }
+        .padding(.trailing, 16) // Right padding for proper spacing from edge
     }
     
     private func shareVideo() {
@@ -95,7 +86,7 @@ struct VideoOverlayView: View {
         Color.black
         HStack {
             Spacer()
-            VideoOverlayView(video: VideoClip.mock)
+            VideoOverlayView(video: VideoClip.mock, isLiked: false)
         }
     }
 }
