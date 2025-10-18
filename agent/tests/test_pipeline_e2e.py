@@ -195,6 +195,7 @@ class TestVideoPipelineIntegration:
             pipeline.process_video_url(
                 video_url=test_url,
                 ws=mock_ws,
+                is_live=False,
                 create_snippet_message=create_snippet_message,
                 create_complete_message=create_complete_message,
                 create_error_message=create_error_message,
@@ -280,6 +281,7 @@ class TestVideoPipelineIntegration:
             pipeline.process_video_url(
                 video_url=test_url,
                 ws=mock_ws,
+                is_live=False,
                 create_snippet_message=create_snippet_message,
                 create_complete_message=create_complete_message,
                 create_error_message=create_error_message,
@@ -307,6 +309,7 @@ class TestVideoPipelineIntegration:
         pipeline.process_video_url(
             video_url=invalid_url,
             ws=mock_ws,
+            is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
@@ -334,6 +337,7 @@ class TestPipelineE2E:
             pipeline.process_video_url(
                 video_url=test_url,
                 ws=mock_ws,
+                is_live=False,
                 create_snippet_message=create_snippet_message,
                 create_complete_message=create_complete_message,
                 create_error_message=create_error_message,
@@ -399,6 +403,7 @@ class TestPipelineE2E:
             pipeline.process_video_url(
                 video_url=test_url,
                 ws=mock_ws,
+                is_live=False,
                 create_snippet_message=create_snippet_message,
                 create_complete_message=create_complete_message,
                 create_error_message=create_error_message,
@@ -427,6 +432,7 @@ class TestPipelineErrorHandling:
         pipeline.process_video_url(
             video_url=invalid_url,
             ws=mock_ws,
+            is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
@@ -455,6 +461,7 @@ class TestPipelineErrorHandling:
         pipeline.process_video_url(
             video_url=test_url,
             ws=mock_ws,
+            is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
