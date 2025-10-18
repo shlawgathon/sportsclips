@@ -13,6 +13,8 @@ struct Clip: Codable {
     let s3Key: String
     let title: String
     let description: String
+    let gameId: String
+    let sport: APISport
     let likesCount: Int
     let commentsCount: Int
     let embedding: [Double]?
@@ -277,12 +279,7 @@ final class APIClient {
         try await request("/games/\(gameId)", response: GameListItem.self)
     }
 
-    // MARK: - Ingestion & Catalog
-
-    func ingestYouTube(sport: APISport? = nil) async throws -> IngestResponse {
-        let items = sport != nil ? [URLQueryItem(name: "sport", value: sport!.rawValue)] : []
-        return try await request("/ingest/youtube", queryItems: items, method: "POST", body: nil, response: IngestResponse.self)
-    }
+    // MARK: - Catalog
 
     func catalog() async throws -> [CatalogItem] {
         try await request("/catalog", response: [CatalogItem].self)

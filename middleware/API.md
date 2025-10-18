@@ -82,13 +82,12 @@ Comment schema:
 Recommendation item schema:
 { "id": string, "score": number, "clip": Clip }
 
-## Ingestion (authenticated)
-- POST /ingest/youtube?sport={Sport}
-  - Query param: sport optional (defaults to "All"). Case-insensitive supported.
-  - Behavior: Searches YouTube live streams for the given sport, creates/updates a LiveGame and tracked catalog entry, and streams clips via Agent; clips are uploaded to S3 and persisted with optional text embeddings.
-  - Responses:
-    - 202 Accepted: {"videoId": string, "createdClips": number}
-    - 400/404/409 on various errors (e.g., no live videos found, already processing)
+## Background ingestion
+- Runs automatically every minute (no user trigger required).
+  - For each Sport (excluding "All"), queries YouTube for top 10 live events.
+  - Upserts a LiveGame per video and catalogs it as TrackedVideo with status Queued/Processing/Completed.
+  - Clips are produced by the Agent in the background and stored to S3; Clip records are created with sport and gameId.
+- Note: Legacy POST /ingest/youtube exists for internal use but should be considered deprecated for clients.
 
 ## Catalog (authenticated)
 - GET /catalog
@@ -118,8 +117,6 @@ Login and capture cookies:
 List games (authenticated):
   curl -b cookies.txt http://localhost:8080/games
 
-Ingest a live source for Football (authenticated):
-  curl -b cookies.txt -X POST 'http://localhost:8080/ingest/youtube?sport=Football'
 
 List clips by sport (authenticated):
   curl -b cookies.txt http://localhost:8080/clips/by-sport/Basketball
