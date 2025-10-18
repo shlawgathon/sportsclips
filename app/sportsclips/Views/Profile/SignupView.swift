@@ -8,38 +8,38 @@
 import SwiftUI
 
 struct SignupView: View {
-    @Binding var username: String
-    @Binding var email: String
-    @Binding var isPresented: Bool
-    let onSignup: (String, String) -> Void
+    @StateObject private var localStorage = LocalStorageService.shared
+    @Environment(\.dismiss) private var dismiss
     
+    @State private var username = ""
+    @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var showError = false
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                // Background
-                LinearGradient(
-                    colors: [.black, .purple.opacity(0.3), .black],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+        ZStack {
+            // Background
+            LinearGradient(
+                colors: [.black, .purple.opacity(0.3), .black],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+            
+            VStack(spacing: 30) {
+                Spacer()
                 
-                VStack(spacing: 30) {
-                    Spacer()
-                    
-                    // Logo
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 60, weight: .light))
-                        .foregroundColor(.white.opacity(0.8))
-                    
-                    Text("Join Sports Clips")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.white)
-                    
+                // Logo
+                AnimatedSportsLogo()
+                    .scaleEffect(0.75)
+                
+                Text("Join Sports Clips")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+                
                     // Signup form
                     VStack(spacing: 20) {
                         // Username field
@@ -50,9 +50,11 @@ struct SignupView: View {
                             
                             TextField("Choose username", text: $username)
                                 .textFieldStyle(GlassTextFieldStyle())
+                                .textInputAutocapitalization(.never)
                         }
                         
-                        // Email field
+                        // Email field - COMMENTED OUT FOR NOW
+                        /*
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Email")
                                 .font(.system(size: 14, weight: .medium))
@@ -61,85 +63,111 @@ struct SignupView: View {
                             TextField("Enter email", text: $email)
                                 .textFieldStyle(GlassTextFieldStyle())
                                 .keyboardType(.emailAddress)
-                                .autocapitalization(.none)
+                                .textInputAutocapitalization(.never)
                         }
+                        */
+                    
+                    // Password field
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Password")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
                         
-                        // Password field
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Password")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.white.opacity(0.8))
-                            
-                            SecureField("Create password", text: $password)
-                                .textFieldStyle(GlassTextFieldStyle())
+                        SecureField("Create password", text: $password)
+                            .textFieldStyle(GlassTextFieldStyle())
+                    }
+                    
+                    // Confirm password field
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Confirm Password")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+                        
+                        SecureField("Confirm password", text: $confirmPassword)
+                            .textFieldStyle(GlassTextFieldStyle())
+                    }
+                    
+                    // Error message
+                    if let errorMessage = errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.red.opacity(0.9))
+                            .padding(.horizontal, 16)
+                    }
+                    
+                    // Signup button
+                    Button(action: {
+                        Task {
+                            await handleSignup()
                         }
-                        
-                        // Confirm password field
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Confirm Password")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.white.opacity(0.8))
-                            
-                            SecureField("Confirm password", text: $confirmPassword)
-                                .textFieldStyle(GlassTextFieldStyle())
-                        }
-                        
-                        // Signup button
-                        Button(action: {
-                            isLoading = true
-                            // Simulate API call
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                                onSignup(username, email)
-                                isPresented = false
-                                isLoading = false
+                    }) {
+                        HStack {
+                            if isLoading {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.8)
+                            } else {
+                                Text("Sign Up")
+                                    .font(.system(size: 16, weight: .semibold))
                             }
-                        }) {
-                            HStack {
-                                if isLoading {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        .scaleEffect(0.8)
-                                } else {
-                                    Text("Sign Up")
-                                        .font(.system(size: 16, weight: .semibold))
-                                }
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 25))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 25)
-                                    .stroke(.white.opacity(0.3), lineWidth: 1)
-                            )
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 25))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 25)
+                                .stroke(.white.opacity(0.3), lineWidth: 1)
+                        )
                         }
                         .buttonStyle(PlainButtonStyle())
-                        .disabled(isLoading || username.isEmpty || email.isEmpty || password.isEmpty || password != confirmPassword)
-                    }
-                    .padding(.horizontal, 40)
-                    
-                    Spacer()
+                        .disabled(isLoading || username.isEmpty || password.isEmpty || password != confirmPassword) // Removed email check
                 }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Cancel") {
-                        isPresented = false
-                    }
-                    .foregroundColor(.white)
-                }
+                .padding(.horizontal, 40)
+                
+                Spacer()
             }
         }
+        .navigationBarTitleDisplayMode(.inline)
         .preferredColorScheme(.dark)
+    }
+    
+    // MARK: - Signup Handler
+    private func handleSignup() async {
+        errorMessage = nil
+        
+        // Validate password match
+        guard password == confirmPassword else {
+            errorMessage = "Passwords do not match"
+            return
+        }
+        
+        isLoading = true
+        
+        do {
+            // TODO: Replace with actual API call when documentation is provided
+            let authResponse = try await AuthService.shared.signup(
+                username: username,
+                email: "", // Email commented out for now
+                password: password
+            )
+            
+            // Save user session
+            localStorage.saveUserSession(
+                userId: authResponse.userId,
+                username: authResponse.username,
+                email: authResponse.email,
+                sessionToken: authResponse.sessionToken
+            )
+            
+            isLoading = false
+        } catch {
+            isLoading = false
+            errorMessage = "Signup failed. Please try again."
+        }
     }
 }
 
 #Preview {
-    SignupView(
-        username: .constant(""),
-        email: .constant(""),
-        isPresented: .constant(true),
-        onSignup: { _, _ in }
-    )
+    SignupView()
 }

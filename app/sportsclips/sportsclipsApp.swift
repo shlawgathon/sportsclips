@@ -9,9 +9,15 @@ import SwiftUI
 
 @main
 struct sportsclipsApp: App {
+    @StateObject private var localStorage = LocalStorageService.shared
+    
     var body: some Scene {
         WindowGroup {
-            MainTabView()
+            if localStorage.userProfile?.isLoggedIn == true {
+                MainTabView()
+            } else {
+                AuthenticationView()
+            }
         }
     }
 }
