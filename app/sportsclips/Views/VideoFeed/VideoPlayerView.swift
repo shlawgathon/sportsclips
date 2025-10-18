@@ -13,7 +13,7 @@ struct VideoPlayerView: View {
     let video: VideoClip
     @ObservedObject var playerManager: VideoPlayerManager
     @State private var player: AVPlayer?
-    
+
     var body: some View {
         ZStack {
             // Video player - full screen without controls
@@ -47,7 +47,7 @@ struct VideoPlayerView: View {
             playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
         }
     }
-    
+
     private func setupPlayer() {
         player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
         // Don't auto-play here - let VideoFeedView handle play/pause logic
@@ -55,5 +55,18 @@ struct VideoPlayerView: View {
 }
 
 #Preview {
-    VideoPlayerView(video: VideoClip.mock, playerManager: VideoPlayerManager.shared)
+    let sample = VideoClip(
+        id: "preview",
+        videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        caption: "Preview caption",
+        sport: .football,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        createdAt: Date(),
+        s3Key: nil,
+        title: "Preview Title",
+        description: "Preview description"
+    )
+    VideoPlayerView(video: sample, playerManager: VideoPlayerManager.shared)
 }

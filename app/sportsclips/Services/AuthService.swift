@@ -36,125 +36,51 @@ enum AuthError: Error {
 @MainActor
 class AuthService {
     static let shared = AuthService()
-    
-    // TODO: Replace with your actual API base URL
-    private let baseURL = "https://api.example.com"
-    
+
     private init() {}
-    
+
     // MARK: - Login
     func login(username: String, email: String, password: String) async throws -> AuthResponse {
-        // TODO: Replace with actual API call
-        // Example implementation:
-        /*
-        let endpoint = "\(baseURL)/auth/login"
-        guard let url = URL(string: endpoint) else {
-            throw AuthError.invalidResponse
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let loginRequest = LoginRequest(username: username, email: email, password: password)
-        request.httpBody = try JSONEncoder().encode(loginRequest)
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AuthError.invalidResponse
-        }
-        
-        guard httpResponse.statusCode == 200 else {
+        // Integrate with middleware API via APIClient
+        do {
+            let client = APIClient.shared
+            let resp = try await client.login(username: username, password: password)
+            let userId = resp.userId ?? resp.id ?? ""
+            // Session is cookie-based; we persist a synthetic token derived from user id for local storage purposes
+            return AuthResponse(
+                sessionToken: userId,
+                userId: userId,
+                username: username,
+                email: email
+            )
+        } catch {
             throw AuthError.invalidCredentials
         }
-        
-        let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-        return authResponse
-        */
-        
-        // PLACEHOLDER: Simulate API call with delay
-        try await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
-        
-        // Return mock response
-        return AuthResponse(
-            sessionToken: "mock_session_token_\(UUID().uuidString)",
-            userId: UUID().uuidString,
-            username: username,
-            email: email
-        )
     }
-    
+
     // MARK: - Signup
     func signup(username: String, email: String, password: String) async throws -> AuthResponse {
-        // TODO: Replace with actual API call
-        // Example implementation:
-        /*
-        let endpoint = "\(baseURL)/auth/signup"
-        guard let url = URL(string: endpoint) else {
-            throw AuthError.invalidResponse
+        do {
+            let client = APIClient.shared
+            _ = try await client.register(username: username, password: password, profilePictureBase64: nil)
+            // Auto-login after register
+            let loginResp = try await client.login(username: username, password: password)
+            let userId = loginResp.userId ?? loginResp.id ?? ""
+            return AuthResponse(
+                sessionToken: userId,
+                userId: userId,
+                username: username,
+                email: email
+            )
+        } catch {
+            throw AuthError.serverError("Signup failed: \(error.localizedDescription)")
         }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let signupRequest = SignupRequest(username: username, email: email, password: password)
-        request.httpBody = try JSONEncoder().encode(signupRequest)
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AuthError.invalidResponse
-        }
-        
-        guard httpResponse.statusCode == 201 else {
-            if let errorData = try? JSONDecoder().decode([String: String].self, from: data),
-               let errorMessage = errorData["error"] {
-                throw AuthError.serverError(errorMessage)
-            }
-            throw AuthError.serverError("Signup failed")
-        }
-        
-        let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-        return authResponse
-        */
-        
-        // PLACEHOLDER: Simulate API call with delay
-        try await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
-        
-        // Return mock response
-        return AuthResponse(
-            sessionToken: "mock_session_token_\(UUID().uuidString)",
-            userId: UUID().uuidString,
-            username: username,
-            email: email
-        )
     }
-    
+
     // MARK: - Logout
     func logout(sessionToken: String) async throws {
-        // TODO: Replace with actual API call to invalidate session
-        /*
-        let endpoint = "\(baseURL)/auth/logout"
-        guard let url = URL(string: endpoint) else {
-            throw AuthError.invalidResponse
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
-        
-        let (_, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw AuthError.serverError("Logout failed")
-        }
-        */
-        
-        // PLACEHOLDER: Simulate API call
-        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        let client = APIClient.shared
+        try await client.logout()
     }
 }
 

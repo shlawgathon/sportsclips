@@ -18,7 +18,7 @@ struct VideoOverlayView: View {
     @State private var commentCount: Int
     @State private var showingComments = false
     @State private var isLiking = false
-    
+
     init(video: VideoClip, isLiked: Bool = false, onLikeChanged: ((Bool) -> Void)? = nil) {
         self.video = video
         self.isLiked = isLiked
@@ -28,7 +28,7 @@ struct VideoOverlayView: View {
         self._likeCount = State(initialValue: video.likes + (isLiked ? 1 : 0))
         self._commentCount = State(initialValue: video.comments)
     }
-    
+
     var body: some View {
         VStack(spacing: 20) {
             // Like button
@@ -39,14 +39,14 @@ struct VideoOverlayView: View {
                 handleLikeToggle()
             }
             .foregroundColor(currentLikedState ? .red : .white)
-            
+
             // Comment button
             ActionButton(
                 icon: "message",
                 count: commentCount
             ) {
                 showingComments = true
-                
+
                 // Record interaction in local storage
                 localStorage.recordInteraction(
                     videoId: video.id,
@@ -55,7 +55,7 @@ struct VideoOverlayView: View {
                     shared: false
                 )
             }
-            
+
             // Share button
             ActionButton(
                 icon: "square.and.arrow.up",
@@ -77,7 +77,7 @@ struct VideoOverlayView: View {
         .onAppear {
             // Ensure comment count is properly initialized
             commentCount = video.comments
-            
+
             // Load current like state from local storage
             if let interaction = localStorage.getInteraction(for: video.id) {
                 let storedLikedState = interaction.liked
@@ -86,7 +86,7 @@ struct VideoOverlayView: View {
                     likeCount = video.likes + (storedLikedState ? 1 : 0)
                 }
             }
-            
+
             print("🔄 VideoOverlayView onAppear: video \(video.id), isLiked: \(isLiked), currentLikedState: \(currentLikedState)")
         }
         .onChange(of: isLiked) { _, newValue in
@@ -113,22 +113,22 @@ struct VideoOverlayView: View {
             }
         }
     }
-    
+
     private func handleLikeToggle() {
         guard !isLiking else { return }
-        
+
         isLiking = true
         let newLikedState = !currentLikedState
-        
+
         // Optimistically update UI
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             currentLikedState = newLikedState
             likeCount += newLikedState ? 1 : -1
         }
-        
+
         // Notify parent of like state change
         onLikeChanged?(newLikedState)
-        
+
         // Record interaction in local storage
         localStorage.recordInteraction(
             videoId: video.id,
@@ -136,7 +136,7 @@ struct VideoOverlayView: View {
             commented: false,
             shared: false
         )
-        
+
         // Call API to like/unlike the video
         Task {
             do {
@@ -153,19 +153,19 @@ struct VideoOverlayView: View {
                     onLikeChanged?(!newLikedState)
                 }
             }
-            
+
             await MainActor.run {
                 isLiking = false
             }
         }
     }
-    
+
     private func shareVideo() {
         let activityVC = UIActivityViewController(
             activityItems: [video.videoURL],
             applicationActivities: nil
         )
-        
+
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let window = windowScene.windows.first {
             window.rootViewController?.present(activityVC, animated: true)
@@ -178,7 +178,20 @@ struct VideoOverlayView: View {
         Color.black
         HStack {
             Spacer()
-            VideoOverlayView(video: VideoClip.mock, isLiked: false, onLikeChanged: { _ in })
+            let sample = VideoClip(
+                id: "preview",
+                videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                caption: "Preview caption",
+                sport: .football,
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                createdAt: Date(),
+                s3Key: nil,
+                title: "Preview Title",
+                description: "Preview description"
+            )
+            VideoOverlayView(video: sample, isLiked: false, onLikeChanged: { _ in })
         }
     }
 }

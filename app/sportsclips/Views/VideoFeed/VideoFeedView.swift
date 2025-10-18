@@ -27,17 +27,18 @@ struct VideoFeedView: View {
     @State private var selectedGameName = ""
     @State private var currentVideoTimes: [String: Double] = [:] // Track current time for each video
     @State private var allVideos: [VideoClip] = [] // All loaded videos
+    @State private var nextCursor: Int64? = nil // Cursor for paginated feed
     @State private var currentVideoIndex: Int = 0 // Current video being viewed
     @State private var isLoadingMore: Bool = false // Loading more videos
     @State private var controlsVisible: [String: Bool] = [:] // Track when controls are visible for each video
     @State private var timeUpdateTimer: Timer?
     @State private var doubleTapInProgress: [String: Bool] = [:] // Track if double tap is in progress
     @State private var controlShowTimes: [String: Date] = [:] // Track when controls were shown for each video
-    
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            
+
             if filteredVideos.isEmpty && isLoading {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -47,7 +48,7 @@ struct VideoFeedView: View {
                     Image(systemName: "flame")
                         .font(.system(size: 60, weight: .light))
                         .foregroundColor(.white.opacity(0.6))
-                    
+
                     Text("No videos available")
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(.white.opacity(0.7))
@@ -63,7 +64,7 @@ struct VideoFeedView: View {
                                         VideoPlayerView(video: video, playerManager: playerManager)
                                             .frame(width: geometry.size.width, height: geometry.size.height)
                                             .clipped()
-                                        
+
                                         // Invisible overlay for tap detection
                                         Rectangle()
                                             .fill(Color.clear)
@@ -92,7 +93,7 @@ struct VideoFeedView: View {
                                                     .onEnded { _ in
                                                         doubleTapInProgress[video.id] = true
                                                         handleDoubleTapLike(for: video, at: CGPoint(x: geometry.size.width/2, y: geometry.size.height/2))
-                                                        
+
                                                         // Reset the flag after a short delay
                                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                                             doubleTapInProgress[video.id] = false
@@ -100,11 +101,11 @@ struct VideoFeedView: View {
                                                     }
                                             )
                                             .zIndex(1) // Above video player
-                                        
+
                                         // Video overlay with buttons and caption
                                         VStack {
                                             Spacer()
-                                            
+
                                             HStack(alignment: .bottom) {
                                                 // Caption on the left
                                                 CaptionView(
@@ -138,9 +139,9 @@ struct VideoFeedView: View {
                                                         print("🎬 Timer will auto-hide controls at: \(Date(timeIntervalSinceNow: 3.0))")
                                                     }
                                                 )
-                                                
+
                                                 Spacer()
-                                                
+
                                                 // Action buttons on the right
                                                 VideoOverlayView(
                                                     video: video,
@@ -153,21 +154,21 @@ struct VideoFeedView: View {
                                             .padding(.bottom, 80) // Same gap for both states
                                         }
                                         .zIndex(2) // Above everything else
-                                        
+
                                         // Heart animation overlay
                                         if let heartAnimation = heartAnimations[video.id] {
                                             HeartAnimationView(animation: heartAnimation)
                                                 .zIndex(3) // Above everything
                                         }
-                                        
+
                                         // Custom video controls (now integrated into CaptionView)
-                                        
+
                                         // Glass play button overlay (shows when paused)
                                         if pausedVideos[video.id] == true {
                                             ZStack {
                                                 Color.black.opacity(0.2)
                                                     .ignoresSafeArea()
-                                                
+
                                                 Button(action: {
                                                     // Resume playback
                                                     playerManager.playVideo(for: video.videoURL, videoId: video.id)
@@ -193,7 +194,7 @@ struct VideoFeedView: View {
                                                                     )
                                                             )
                                                             .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
-                                                        
+
                                                         // Play triangle icon
                                                         Image(systemName: "play.fill")
                                                             .font(.system(size: 40, weight: .medium))
@@ -214,26 +215,27 @@ struct VideoFeedView: View {
                                         // Update current index and play video
                                         currentIndex = index
                                         currentVideoIndex = index
-                                        
+
                                         // Auto-play the video when it becomes visible
                                         print("🎬 Video appeared: \(video.id) at index \(index)")
                                         playerManager.playVideo(for: video.videoURL, videoId: video.id)
                                         localStorage.recordView(videoId: video.id)
-                                        
-                                        // Reset pause state when video becomes visible
+                                        Task { await apiService.markViewed(clipId: video.id) }
+
+        // Reset pause state when video becomes visible
                                         pausedVideos[video.id] = false
-                                        
+
                                         // Check if we need to load more videos (when approaching end)
                                         if index >= filteredVideos.count - 3 && !isLoadingMore {
                                             preloadMoreVideos()
                                         }
-                                        
+
                                         // Load like state from local storage
                                         if let interaction = localStorage.getInteraction(for: video.id) {
                                             videoLikeStates[video.id] = interaction.liked
                                             print("🔄 VideoFeedView: Loaded like state \(interaction.liked) for video \(video.id)")
                                         }
-                                        
+
                                         // Load more videos if near end
                                         if index >= filteredVideos.count - 2 && !isLoadingMore {
                                             preloadMoreVideos()
@@ -242,7 +244,7 @@ struct VideoFeedView: View {
         .onDisappear {
             // Pause video when it disappears
             playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
-            
+
             // Clean up control states to prevent UI breaking
             showVideoControls[video.id] = false
             controlsVisible[video.id] = false
@@ -250,7 +252,7 @@ struct VideoFeedView: View {
             heartAnimations[video.id] = nil
         }
                                 }
-                                
+
                                 // Loading indicator at bottom
                                 if isLoading {
                                     HStack {
@@ -273,7 +275,7 @@ struct VideoFeedView: View {
                                 print("🎬 Scroll detected - switching to video index: \(newIndex), ID: \(currentVideo.id)")
                                 playerManager.playVideo(for: currentVideo.videoURL, videoId: currentVideo.id)
                                 localStorage.recordView(videoId: currentVideo.id)
-                                
+
                                 // Reset pause state for the new current video
                                 pausedVideos[currentVideo.id] = false
                             }
@@ -282,7 +284,7 @@ struct VideoFeedView: View {
                 }
                 .ignoresSafeArea()
             }
-            
+
             // Sports filter bubbles at top
             VStack {
                 HStack {
@@ -303,10 +305,10 @@ struct VideoFeedView: View {
                         .padding(.horizontal, 16)
                     }
                     .padding(.top, 8) // Minimal top padding
-                    
+
                     Spacer()
                 }
-                
+
                 Spacer()
             }
         }
@@ -317,7 +319,7 @@ struct VideoFeedView: View {
         .onChange(of: localStorage.interactions) { _, _ in
             // React to changes in local storage interactions
             print("🔄 VideoFeedView: LocalStorage interactions changed, refreshing state")
-            
+
             // Update like states for all videos
             for video in filteredVideos {
                 if let interaction = localStorage.getInteraction(for: video.id) {
@@ -328,7 +330,7 @@ struct VideoFeedView: View {
                     }
                 }
             }
-            
+
             // Force UI refresh by updating a dummy state
             DispatchQueue.main.async {
                 // Trigger a state change to force UI refresh
@@ -338,49 +340,51 @@ struct VideoFeedView: View {
         .onDisappear {
             playerManager.pauseAllVideos()
             stopTimeUpdateTimer()
-            
+
             // Clean up unused players to free memory
             let activeVideoIds = filteredVideos.map { $0.id }
             playerManager.cleanupUnusedPlayers(activeVideoIds: activeVideoIds)
-            
+
             // Clean up all control states to prevent UI breaking
             showVideoControls.removeAll()
             controlsVisible.removeAll()
             controlShowTimes.removeAll()
             heartAnimations.removeAll()
-            
+
             print("🎬 VideoFeedView disappeared - cleaned up resources")
         }
         .sheet(isPresented: $showingGameClips) {
             GameClipsView(gameName: selectedGameName)
         }
     }
-    
+
     private func loadVideos() {
         guard !isLoading else { return }
-        
+
         isLoading = true
         Task {
             do {
-                // Load initial batch of videos
-                let initialVideos = try await apiService.fetchVideos()
+                // Load initial feed page from API
+                let page = try await apiService.fetchFeedPage(limit: 10, cursor: nil, sport: selectedSport == .all ? nil : APIClient.APISport(rawValue: selectedSport.rawValue))
                 await MainActor.run {
-                    self.allVideos = initialVideos
-                    self.videos = initialVideos
+                    self.nextCursor = page.nextCursor
+                    self.allVideos = page.videos
+                    self.videos = page.videos
                     self.filterVideos()
                     self.isLoading = false
-                    
+
                     // Auto-play first video after a short delay to ensure UI is ready
                     if !filteredVideos.isEmpty {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             print("🎬 Auto-playing first video after load: \(filteredVideos[0].id)")
                             playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
                             localStorage.recordView(videoId: filteredVideos[0].id)
+                            Task { await apiService.markViewed(clipId: filteredVideos[0].id) }
                             // Reset pause state for first video
                             pausedVideos[filteredVideos[0].id] = false
                         }
                     }
-                    
+
                     // Start preloading more videos
                     preloadMoreVideos()
                 }
@@ -391,41 +395,32 @@ struct VideoFeedView: View {
             }
         }
     }
-    
+
     private func preloadMoreVideos() {
         guard !isLoadingMore else { return }
-        
+
         isLoadingMore = true
         Task {
-            // Simulate loading 8 more videos sequentially (not in parallel)
-            for i in 1...8 {
-                do {
-                    // Simulate API delay (reduced for better performance)
-                    try await Task.sleep(nanoseconds: 50_000_000) // 0.05 seconds between each
-                    
-                    // Generate new video with unique content
-                    let newVideo = generateNewVideo(index: allVideos.count + i)
-                    
-                    await MainActor.run {
-                        self.allVideos.append(newVideo)
-                        self.videos = self.allVideos
-                        self.filterVideos()
-                    }
-                } catch {
-                    print("Error preloading video \(i): \(error)")
+            do {
+                let page = try await apiService.fetchFeedPage(limit: 10, cursor: nextCursor, sport: selectedSport == .all ? nil : APIClient.APISport(rawValue: selectedSport.rawValue))
+                await MainActor.run {
+                    self.nextCursor = page.nextCursor
+                    self.allVideos.append(contentsOf: page.videos)
+                    self.videos = self.allVideos
+                    self.filterVideos()
+                    self.isLoadingMore = false
                 }
-            }
-            
-            await MainActor.run {
-                self.isLoadingMore = false
+            } catch {
+                print("Error preloading videos: \(error)")
+                await MainActor.run { self.isLoadingMore = false }
             }
         }
     }
-    
+
     private func generateNewVideo(index: Int) -> VideoClip {
         let sports: [VideoClip.Sport] = [.football, .basketball, .soccer, .baseball, .tennis, .golf, .hockey, .boxing, .mma, .racing]
         let sport = sports[index % sports.count]
-        
+
         let captions = [
             "Amazing \(sport.rawValue.lowercased()) moment! This incredible play will blow your mind! The athlete showed incredible skill and determination to pull off this spectacular move. Watch as they defy all odds and create a moment that will be remembered for years to come! 🏆",
             "Unbelievable \(sport.rawValue.lowercased()) action! This is what peak performance looks like! The precision and timing required for this play is absolutely mind-blowing. Every second of this clip showcases the incredible talent and dedication of these athletes! ⚡",
@@ -433,7 +428,7 @@ struct VideoFeedView: View {
             "Spectacular \(sport.rawValue.lowercased()) moment! This is the kind of play that makes you jump out of your seat! The athlete's incredible performance shows what years of training and dedication can achieve. This is sports at its finest! 🌟",
             "Outstanding \(sport.rawValue.lowercased()) play! This incredible moment showcases the very best of what this sport has to offer! The skill, precision, and determination shown here is absolutely inspiring. This is why we love sports! 💪"
         ]
-        
+
         return VideoClip(
             id: UUID().uuidString,
             videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
@@ -448,12 +443,12 @@ struct VideoFeedView: View {
             description: captions[index % captions.count]
         )
     }
-    
+
     private func filterVideos() {
         print("🎬 Filtering videos for sport: \(selectedSport.rawValue)")
         print("🎬 Total videos before filtering: \(videos.count)")
         print("🎬 Videos sports: \(videos.map { $0.sport.rawValue })")
-        
+
         if selectedSport == .all {
             // Randomize the order of all videos for the "All" tab
             filteredVideos = videos.shuffled()
@@ -461,12 +456,12 @@ struct VideoFeedView: View {
         } else {
             filteredVideos = videos.filter { $0.sport == selectedSport }
         }
-        
+
         print("🎬 Filtered videos count: \(filteredVideos.count)")
         print("🎬 Filtered videos sports: \(filteredVideos.map { $0.sport.rawValue })")
-        
+
         currentIndex = 0
-        
+
         // Auto-play first video after filtering
         if !filteredVideos.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -478,17 +473,17 @@ struct VideoFeedView: View {
             }
         }
     }
-    
+
     private func handleDoubleTapLike(for video: VideoClip, at location: CGPoint) {
         // Toggle like state
         let currentLikeState = videoLikeStates[video.id] ?? false
         let newLikeState = !currentLikeState
-        
+
         // Update state with animation
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             videoLikeStates[video.id] = newLikeState
         }
-        
+
         // Record interaction in local storage
         localStorage.recordInteraction(
             videoId: video.id,
@@ -496,11 +491,11 @@ struct VideoFeedView: View {
             commented: false,
             shared: false
         )
-        
+
         // Add haptic feedback
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
-        
+
         // Create heart animation
         let heartAnimation = HeartAnimation(
             id: UUID().uuidString,
@@ -508,12 +503,12 @@ struct VideoFeedView: View {
             isLiked: newLikeState
         )
         heartAnimations[video.id] = heartAnimation
-        
+
         // Remove animation after it completes
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             heartAnimations.removeValue(forKey: video.id)
         }
-        
+
         // Call API to like/unlike the video
         Task {
             do {
@@ -529,23 +524,23 @@ struct VideoFeedView: View {
                 }
             }
         }
-        
+
         // Force UI refresh by updating a dummy state
         DispatchQueue.main.async {
             // Trigger a state change to force UI refresh
             self.currentIndex = self.currentIndex
         }
-        
+
         print("🎬 Double tapped to like video: \(video.id), new state: \(newLikeState)")
     }
-    
+
     private func handleSingleTap(for video: VideoClip) {
         // Don't handle single tap if controls are visible (during slider interaction)
         guard !(controlsVisible[video.id] ?? false) else {
             print("🎬 Single tap ignored - controls are visible")
             return
         }
-        
+
         // Toggle play/pause on single tap
         let player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
         if player.timeControlStatus == .playing {
@@ -557,27 +552,27 @@ struct VideoFeedView: View {
         }
         print("Single tapped to toggle play/pause for video: \(video.id)")
     }
-    
+
     private func handleLongPress(for video: VideoClip) {
         // Show controls on long press
         let showTime = Date()
         showVideoControls[video.id] = true
         controlsVisible[video.id] = true
         controlShowTimes[video.id] = showTime // Record when controls were shown
-        
+
         print("🎬 Long pressed to show controls for video: \(video.id)")
         print("🎬 showVideoControls[\(video.id)] = \(showVideoControls[video.id] ?? false)")
         print("🎬 Control show time recorded: \(showTime)")
         print("🎬 Timer will auto-hide controls at: \(Date(timeIntervalSinceNow: 3.0))")
     }
-    
+
     private func extractGameName(from video: VideoClip) -> String {
         // Try to extract game name from title first, then description
         let textToAnalyze = video.title ?? video.description ?? video.caption
-        
+
         // Look for common game patterns
         let lowercasedText = textToAnalyze.lowercased()
-        
+
         // Check for specific game types
         if lowercasedText.contains("championship") || lowercasedText.contains("final") {
             return "Championship Game"
@@ -592,7 +587,7 @@ struct VideoFeedView: View {
         } else if lowercasedText.contains("classic") {
             return "Classic Match"
         }
-        
+
         // Extract from title if available
         if let title = video.title, !title.isEmpty {
             let words = title.components(separatedBy: " ")
@@ -601,16 +596,16 @@ struct VideoFeedView: View {
             }
             return title
         }
-        
+
         // Fallback to first few words of description
         let words = textToAnalyze.components(separatedBy: " ")
         if words.count >= 2 {
             return "\(words[0]) \(words[1])"
         }
-        
+
         return "Game Highlights"
     }
-    
+
     private func getCurrentTime(for videoId: String) -> Double {
         // Get current time from the video that matches this ID
         if filteredVideos.contains(where: { $0.id == videoId }) {
@@ -618,7 +613,7 @@ struct VideoFeedView: View {
         }
         return 0.0
     }
-    
+
     private func getDuration(for videoId: String) -> Double {
         // Get duration from the video that matches this ID
         if filteredVideos.contains(where: { $0.id == videoId }) {
@@ -627,27 +622,27 @@ struct VideoFeedView: View {
         }
         return 596.0
     }
-    
+
     private func seekToTime(for videoId: String, time: Double) {
         // Seek the video that matches this ID
         if let video = filteredVideos.first(where: { $0.id == videoId }) {
             playerManager.seekVideo(for: video.videoURL, videoId: video.id, to: time)
         }
     }
-    
+
         private func startTimeUpdateTimer() {
             // Invalidate existing timer to prevent duplicates
             timeUpdateTimer?.invalidate()
-            
+
             print("🎬 Starting time update timer for VideoFeedView")
-            
+
             timeUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
                 Task { @MainActor in
                     // Update current time for all videos
                     for video in filteredVideos {
                         let currentTime = playerManager.getCurrentTime(for: video.videoURL, videoId: video.id)
                         currentVideoTimes[video.id] = currentTime
-                    
+
                     // Check if controls should be hidden (3 seconds after showing)
                     if let showTime = controlShowTimes[video.id] {
                         let elapsed = Date().timeIntervalSince(showTime)
@@ -669,7 +664,7 @@ struct VideoFeedView: View {
                 }
             }
         }
-    
+
     private func stopTimeUpdateTimer() {
         print("🎬 Stopping time update timer for VideoFeedView")
         timeUpdateTimer?.invalidate()
@@ -681,9 +676,9 @@ struct SportBubble: View {
     let sport: VideoClip.Sport
     let isSelected: Bool
     let action: () -> Void
-    
+
     @State private var isPressed = false
-    
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
@@ -691,7 +686,7 @@ struct SportBubble: View {
                     .font(.system(size: 16, weight: .medium))
                     .symbolEffect(.bounce, value: isSelected)
                     .foregroundColor(sport == .all ? .red : (isSelected ? .white : .white.opacity(0.7)))
-                
+
                 Text(sport.rawValue)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(isSelected ? .white : .white.opacity(0.7))
@@ -707,7 +702,7 @@ struct SportBubble: View {
                             .blur(radius: 6)
                             .scaleEffect(1.1)
                     }
-                    
+
                     // Main capsule
                     Capsule()
                         .fill(isSelected ? .ultraThinMaterial : .thinMaterial)
@@ -757,7 +752,7 @@ struct HeartAnimationView: View {
     @State private var scale: CGFloat = 0.5
     @State private var opacity: Double = 1.0
     @State private var offset: CGFloat = 0
-    
+
     var body: some View {
         Image(systemName: animation.isLiked ? "heart.fill" : "heart")
             .font(.system(size: 60, weight: .bold))
@@ -770,12 +765,12 @@ struct HeartAnimationView: View {
                 withAnimation(.easeOut(duration: 0.3)) {
                     scale = 1.2
                 }
-                
+
                 withAnimation(.easeOut(duration: 1.0).delay(0.1)) {
                     offset = -50
                     opacity = 0.0
                 }
-                
+
                 withAnimation(.easeIn(duration: 0.2).delay(0.8)) {
                     scale = 0.8
                 }

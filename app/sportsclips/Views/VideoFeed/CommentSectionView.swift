@@ -16,16 +16,16 @@ struct CommentSectionView: View {
     @State private var errorMessage: String?
     @State private var newCommentText = ""
     @State private var isPosting = false
-    
+
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
                 // Header
                 headerView
-                
+
                 // Comments List
                 commentsListView
-                
+
                 // Input Section
                 commentInputView
             }
@@ -35,22 +35,22 @@ struct CommentSectionView: View {
             loadComments()
         }
     }
-    
+
     private var headerView: some View {
         HStack {
             Button("Close") {
                 dismiss()
             }
             .foregroundColor(.white)
-            
+
             Spacer()
-            
+
             Text("Comments")
                 .font(.headline)
                 .foregroundColor(.white)
-            
+
             Spacer()
-            
+
             // Placeholder for symmetry
             Text("Close")
                 .opacity(0)
@@ -58,7 +58,7 @@ struct CommentSectionView: View {
         .padding()
         .background(Color.black.opacity(0.8))
     }
-    
+
     private var commentsListView: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
@@ -72,11 +72,11 @@ struct CommentSectionView: View {
                         Image(systemName: "message")
                             .font(.system(size: 40))
                             .foregroundColor(.gray)
-                        
+
                         Text("No comments yet")
                             .font(.headline)
                             .foregroundColor(.white)
-                        
+
                         Text("Be the first to comment!")
                             .font(.subheadline)
                             .foregroundColor(.gray)
@@ -94,12 +94,12 @@ struct CommentSectionView: View {
         }
         .background(Color.black.opacity(0.9))
     }
-    
+
     private var commentInputView: some View {
         VStack(spacing: 0) {
             Divider()
                 .background(Color.gray)
-            
+
             HStack(spacing: 12) {
                 TextField("Add a comment...", text: $newCommentText, axis: .vertical)
                     .textFieldStyle(PlainTextFieldStyle())
@@ -109,7 +109,7 @@ struct CommentSectionView: View {
                     .cornerRadius(20)
                     .foregroundColor(.white)
                     .lineLimit(1...4)
-                
+
                 Button(action: postComment) {
                     if isPosting {
                         ProgressView()
@@ -129,11 +129,11 @@ struct CommentSectionView: View {
             .background(Color.black.opacity(0.8))
         }
     }
-    
+
     private func loadComments() {
         isLoading = true
         errorMessage = nil
-        
+
         Task {
             do {
                 let fetchedComments = try await apiService.getComments(clipId: video.id)
@@ -149,13 +149,13 @@ struct CommentSectionView: View {
             }
         }
     }
-    
+
     private func postComment() {
         let commentText = newCommentText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !commentText.isEmpty else { return }
-        
+
         isPosting = true
-        
+
         Task {
             do {
                 try await apiService.postComment(clipId: video.id, text: commentText)
@@ -177,7 +177,7 @@ struct CommentSectionView: View {
 
 struct CommentRowView: View {
     let comment: Comment
-    
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // User Avatar
@@ -189,35 +189,36 @@ struct CommentRowView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
                 )
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 // Username and timestamp
                 HStack {
                     Text("User \(comment.userId.suffix(4))")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
-                    
+
                     Spacer()
-                    
+
                     Text(formatTimestamp(comment.createdAt))
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
                 }
-                
+
                 // Comment text
                 Text(comment.text)
                     .font(.system(size: 14))
                     .foregroundColor(.white)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            
+
             Spacer()
         }
         .padding(.vertical, 8)
     }
-    
+
     private func formatTimestamp(_ timestamp: Int64) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
+        // Backend sends seconds since epoch; convert directly
+        let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
@@ -225,6 +226,19 @@ struct CommentRowView: View {
 }
 
 #Preview {
-    CommentSectionView(video: VideoClip.mock)
+    let sample = VideoClip(
+        id: "preview",
+        videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        caption: "Preview caption",
+        sport: .football,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        createdAt: Date(),
+        s3Key: nil,
+        title: "Preview Title",
+        description: "Preview description"
+    )
+    CommentSectionView(video: sample)
         .preferredColorScheme(.dark)
 }

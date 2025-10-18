@@ -20,7 +20,7 @@ struct CaptionView: View {
     @State private var jiggleScale: CGFloat = 1.0
     @State private var isExpanded: Bool = false
     @State private var isDragging: Bool = false
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Sport category
@@ -28,13 +28,13 @@ struct CaptionView: View {
                 Image(systemName: video.sport.icon)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white.opacity(0.8))
-                
+
                 Text(video.sport.rawValue)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white.opacity(0.8))
             }
             .padding(.bottom, 8)
-            
+
             // Title and description with expandable "see more/less"
             VStack(alignment: .leading, spacing: 4) {
                 // Show title if available
@@ -45,7 +45,7 @@ struct CaptionView: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
-                
+
                 // Show description/caption
                 let displayText = video.description ?? video.caption
                 Text(displayText)
@@ -53,7 +53,7 @@ struct CaptionView: View {
                     .foregroundColor(.white)
                     .lineLimit(isExpanded ? nil : 3)
                     .multilineTextAlignment(.leading)
-                
+
                 // Show "see more" or "see less" button if text is long
                 if displayText.count > 80 {
                     Button(action: {
@@ -69,7 +69,7 @@ struct CaptionView: View {
                 }
             }
             .padding(.bottom, 16) // Same spacing as bottom menu
-            
+
                     // Fixed height container to prevent caption shifting
                     ZStack {
                         // Game bubble (always present, animated opacity)
@@ -88,14 +88,14 @@ struct CaptionView: View {
                                 }
                             }
                         }
-                        
+
                         // Slider control (always present, animated opacity)
                         HStack {
                             Text(formatTime(currentTime))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(.white.opacity(0.8))
                                 .frame(width: 40)
-                            
+
                             Slider(value: Binding(
                                 get: { sliderTime },
                                 set: { newTime in
@@ -110,23 +110,23 @@ struct CaptionView: View {
                                     .onChanged { _ in
                                         // Only handle drag events if controls are actually visible
                                         guard showControls else { return }
-                                        
+
                                         if !isDragging {
                                             isDragging = true
                                             onDragStart?()
                                         }
-                                        
+
                                         // Drag is in progress - no timer needed
                                     }
                                     .onEnded { _ in
                                         // Only handle drag end if we were actually dragging
                                         guard isDragging else { return }
-                                        
+
                                         isDragging = false
                                         onDragEnd?()
                                     }
                             )
-                            
+
                             Text(formatTime(duration))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(.white.opacity(0.8))
@@ -183,7 +183,7 @@ struct CaptionView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                
+
                 // Additional blur effect for better readability
                 Rectangle()
                     .fill(.ultraThinMaterial.opacity(0.3))
@@ -201,14 +201,14 @@ struct CaptionView: View {
             isDragging = false
         }
     }
-    
+
     private func extractGameName(from video: VideoClip) -> String {
         // Try to extract game name from title first, then description
         let textToAnalyze = video.title ?? video.description ?? video.caption
-        
+
         // Look for common game patterns
         let lowercasedText = textToAnalyze.lowercased()
-        
+
         // Check for specific game types
         if lowercasedText.contains("championship") || lowercasedText.contains("final") {
             return "Championship Game"
@@ -223,7 +223,7 @@ struct CaptionView: View {
         } else if lowercasedText.contains("classic") {
             return "Classic Match"
         }
-        
+
         // Extract from title if available
         if let title = video.title, !title.isEmpty {
             let words = title.components(separatedBy: " ")
@@ -232,16 +232,16 @@ struct CaptionView: View {
             }
             return title
         }
-        
+
         // Fallback to first few words of description
         let words = textToAnalyze.components(separatedBy: " ")
         if words.count >= 2 {
             return "\(words[0]) \(words[1])"
         }
-        
+
         return "Game Highlights"
     }
-    
+
     private func formatTime(_ time: Double) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
@@ -254,8 +254,21 @@ struct CaptionView: View {
         Color.black
         VStack {
             Spacer()
+            let sample = VideoClip(
+                id: "preview",
+                videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                caption: "Preview caption",
+                sport: .football,
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                createdAt: Date(),
+                s3Key: nil,
+                title: "Preview Title",
+                description: "Preview description"
+            )
             CaptionView(
-                video: VideoClip.mock,
+                video: sample,
                 onGameTap: { print("Game tapped") },
                 showControls: false,
                 currentTime: 120.0,

@@ -34,6 +34,7 @@ fun Application.configureDatabases()
     val clipService = ClipService(mongoDatabase)
     val commentService = CommentService(mongoDatabase)
     val likeService = LikeService(mongoDatabase)
+    val viewService = ViewService(mongoDatabase)
     val trackedVideoService = TrackedVideoService(mongoDatabase)
     val s3 = S3Helper(this)
     val s3u = gg.growly.services.S3Utility(
@@ -182,6 +183,10 @@ fun Application.configureDatabases()
     @Serializable data class ClipListItem(val id: String, val clip: Clip)
     @Serializable data class CommentItem(val id: String, val comment: Comment)
     @Serializable data class RecommendationItem(val id: String, val score: Double, val clip: Clip)
+    @Serializable data class FeedItem(val id: String, val clip: Clip, val viewed: Boolean)
+    @Serializable data class FeedResponse(val items: List<FeedItem>, val nextCursor: Long?)
+    @Serializable data class UpdateProfileRequest(val username: String? = null, val profilePictureBase64: String? = null)
+    @Serializable data class UserItem(val id: String, val user: User)
 
     routing {
         // ========== Auth ==========
@@ -289,6 +294,18 @@ fun Application.configureDatabases()
                 }
                 call.respond(HttpStatusCode.OK)
             }
+            post("/clips/{id}/view") {
+                val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                val session = call.sessions.get(UserSession::class) as? UserSession
+                val userId = session?.userId ?: "anonymous"
+                try {
+                    viewService.markViewed(id, userId)
+                    call.respond(HttpStatusCode.OK)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "failed")))
+                }
+            }
+
             post("/clips/{id}/comments") {
                 val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 val session = call.sessions.get(UserSession::class) as? UserSession
@@ -304,10 +321,51 @@ fun Application.configureDatabases()
                 call.respond(comments)
             }
 
+            // ========== User Profile ==========
+            get("/user/me") {
+                val session = call.sessions.get(UserSession::class) as? UserSession
+                val userId = session?.userId ?: return@get call.respond(HttpStatusCode.Unauthorized)
+                val pair = userService.getById(userId) ?: return@get call.respond(HttpStatusCode.NotFound)
+                call.respond(UserItem(id = pair.first, user = pair.second))
+            }
+            post("/user/profile") {
+                val session = call.sessions.get(UserSession::class) as? UserSession
+                val userId = session?.userId ?: return@post call.respond(HttpStatusCode.Unauthorized)
+                val body = call.receive<UpdateProfileRequest>()
+                val updated = userService.updateProfile(userId, body.username, body.profilePictureBase64)
+                if (updated != null) call.respond(UserItem(id = userId, user = updated)) else call.respond(HttpStatusCode.NotFound)
+            }
 
             get("/catalog") {
                 val items = trackedVideoService.listAll().map { (id, tv) -> mapOf("id" to id, "tracked" to tv) }
                 call.respond(items)
+            }
+
+            // ========== Feed ==========
+            get("/feed") {
+                val session = call.sessions.get(UserSession::class) as? UserSession
+                val userId = session?.userId ?: "anonymous"
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 10
+                val cursor = call.request.queryParameters["cursor"]?.toLongOrNull()
+                val sportParam = call.request.queryParameters["sport"]
+                val sport = sportParam?.let {
+                    try { Sport.valueOf(it) } catch (_: Exception) {
+                        Sport.values().firstOrNull { s -> s.name.equals(it, ignoreCase = true) }
+                    }
+                }
+
+                val all = when {
+                    sport != null -> clipService.listBySport(sport)
+                    else -> clipService.listAll()
+                }
+                // sort desc by createdAt
+                val sorted = all.sortedByDescending { it.second.createdAt }
+                val filteredByCursor = cursor?.let { c -> sorted.filter { it.second.createdAt < c } } ?: sorted
+                val page = filteredByCursor.take(limit)
+                val viewedIds = viewService.listViewedClipIds(userId)
+                val items = page.map { (id, clip) -> FeedItem(id = id, clip = clip, viewed = viewedIds.contains(id)) }
+                val nextCursor = page.lastOrNull()?.second?.createdAt
+                call.respond(FeedResponse(items = items, nextCursor = nextCursor))
             }
 
             // ========== Recommendations ==========

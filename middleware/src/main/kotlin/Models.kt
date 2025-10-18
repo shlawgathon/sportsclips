@@ -158,10 +158,27 @@ class UserService(private val database: MongoDatabase) {
         id to User.fromDocument(doc)
     }
 
+    suspend fun getById(userId: String): Pair<String, User>? = withContext(Dispatchers.IO) {
+        val doc = collection.find(Filters.eq("_id", ObjectId(userId))).first() ?: return@withContext null
+        doc["_id"].toString() to User.fromDocument(doc)
+    }
+
     suspend fun verifyCredentials(username: String, password: String): Pair<String, User>? = withContext(Dispatchers.IO) {
         val existing = findByUsername(username) ?: return@withContext null
         val (id, user) = existing
         if (user.passwordHash == User.hashPassword(password)) id to user else null
+    }
+
+    suspend fun updateProfile(userId: String, username: String?, profilePictureBase64: String?): User? = withContext(Dispatchers.IO) {
+        val filter = Filters.eq("_id", ObjectId(userId))
+        val current = collection.find(filter).first() ?: return@withContext null
+        val user = User.fromDocument(current)
+        val updated = user.copy(
+            username = username ?: user.username,
+            profilePictureBase64 = profilePictureBase64 ?: user.profilePictureBase64
+        )
+        collection.findOneAndReplace(filter, updated.toDocument())
+        updated
     }
 
     suspend fun addLikedClip(userId: String, clipId: String) = withContext(Dispatchers.IO) {
@@ -313,6 +330,53 @@ class LikeService(private val database: MongoDatabase) {
         } catch (_: Exception) {
             null
         }
+    }
+}
+
+// ===================== VIEWS (WATCH HISTORY) =====================
+
+@Serializable
+data class View(
+    val clipId: String,
+    val userId: String = "anonymous",
+    val viewedAt: Long = Instant.now().epochSecond
+) {
+    fun toDocument(): Document = Document.parse(json.encodeToString(this))
+    companion object {
+        private val json = Json { ignoreUnknownKeys = true }
+        fun fromDocument(document: Document): View = json.decodeFromString(document.toJson())
+    }
+}
+
+class ViewService(private val database: MongoDatabase) {
+    private val collection: MongoCollection<Document>
+
+    init {
+        try { database.createCollection("views") } catch (_: Exception) {}
+        collection = database.getCollection("views")
+        try { collection.createIndex(Indexes.compoundIndex(Indexes.ascending("clipId"), Indexes.ascending("userId")), IndexOptions().unique(true)) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.ascending("viewedAt")) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.ascending("userId")) } catch (_: Exception) {}
+    }
+
+    suspend fun markViewed(clipId: String, userId: String): String = withContext(Dispatchers.IO) {
+        val existing = collection.find(Filters.and(Filters.eq("clipId", clipId), Filters.eq("userId", userId))).first()
+        return@withContext if (existing != null) {
+            val id = existing["_id"].toString()
+            val current = View.fromDocument(existing)
+            val updated = current.copy(viewedAt = Instant.now().epochSecond)
+            collection.findOneAndReplace(Filters.eq("_id", ObjectId(id)), updated.toDocument())
+            id
+        } else {
+            val doc = View(clipId = clipId, userId = userId).toDocument()
+            collection.insertOne(doc)
+            doc["_id"].toString()
+        }
+    }
+
+    suspend fun listViewedClipIds(userId: String, since: Long? = null): Set<String> = withContext(Dispatchers.IO) {
+        val filter = if (since != null) Filters.and(Filters.eq("userId", userId), Filters.gte("viewedAt", since)) else Filters.eq("userId", userId)
+        collection.find(filter).map { it["clipId"].toString() }.toSet()
     }
 }
 

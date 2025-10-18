@@ -14,7 +14,7 @@ struct Clip: Codable {
     let title: String
     let description: String
     let gameId: String
-    let sport: APISport
+    let sport: String
     let likesCount: Int
     let commentsCount: Int
     let embedding: [Double]?
@@ -129,6 +129,26 @@ final class APIClient {
         try await requestNoBody("/auth/logout", method: "POST")
     }
 
+    // MARK: - User Profile
+    struct APIUser: Codable {
+        let username: String
+        let profilePictureBase64: String?
+    }
+    struct MeResponse: Codable {
+        let id: String
+        let user: APIUser
+    }
+    struct UpdateProfileRequest: Encodable {
+        let username: String?
+        let profilePictureBase64: String?
+    }
+    func getMe() async throws -> MeResponse {
+        try await request("/user/me", response: MeResponse.self)
+    }
+    func updateUserProfile(username: String? = nil, profilePictureBase64: String? = nil) async throws -> MeResponse {
+        try await request("/user/profile", method: "POST", body: UpdateProfileRequest(username: username, profilePictureBase64: profilePictureBase64), response: MeResponse.self)
+    }
+
     // MARK: - Live
 
     struct CreateLiveRequest: Encodable {
@@ -216,6 +236,29 @@ final class APIClient {
     struct IngestResponse: Codable {
         let videoId: String
         let createdClips: Int
+    }
+
+    // MARK: - Feed & Views
+
+    struct FeedItem: Codable {
+        let id: String
+        let clip: Clip
+        let viewed: Bool
+    }
+    struct FeedResponse: Codable {
+        let items: [FeedItem]
+        let nextCursor: Int64?
+    }
+
+    func fetchFeed(limit: Int = 10, cursor: Int64? = nil, sport: APISport? = nil) async throws -> FeedResponse {
+        var query: [URLQueryItem] = [URLQueryItem(name: "limit", value: String(limit))]
+        if let cursor = cursor { query.append(URLQueryItem(name: "cursor", value: String(cursor))) }
+        if let sport = sport { query.append(URLQueryItem(name: "sport", value: sport.rawValue)) }
+        return try await request("/feed", queryItems: query, response: FeedResponse.self)
+    }
+
+    func markViewed(clipId: String) async throws {
+        try await requestNoBody("/clips/\(clipId)/view", method: "POST")
     }
 
     // MARK: - Clips
