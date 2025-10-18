@@ -8,7 +8,7 @@
 import Foundation
 import Combine
 
-struct VideoInteraction: Codable {
+struct VideoInteraction: Codable, Equatable {
     let videoId: String
     let liked: Bool
     let commented: Bool
@@ -87,6 +87,13 @@ class LocalStorageService: ObservableObject {
         }
         
         saveInteractions()
+        
+        // Force UI update by triggering objectWillChange
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
+        }
+        
+        print("🔄 LocalStorageService: Recorded interaction for video \(videoId) - liked: \(liked), commented: \(commented), shared: \(shared)")
     }
     
     func recordView(videoId: String) {
@@ -102,6 +109,13 @@ class LocalStorageService: ObservableObject {
         }
         
         saveHistory()
+        
+        // Force UI update
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
+        }
+        
+        print("🔄 LocalStorageService: Recorded view for video \(videoId)")
     }
     
     func getInteraction(for videoId: String) -> VideoInteraction? {
@@ -110,6 +124,14 @@ class LocalStorageService: ObservableObject {
     
     func isLiked(videoId: String) -> Bool {
         return getInteraction(for: videoId)?.liked ?? false
+    }
+    
+    // MARK: - State Refresh
+    func forceRefresh() {
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
+        }
+        print("🔄 LocalStorageService: Forced state refresh")
     }
     
     // MARK: - Data Persistence
