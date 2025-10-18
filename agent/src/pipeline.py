@@ -70,6 +70,7 @@ class VideoPipeline:
         self,
         video_url: str,
         ws: Any,
+        is_live: bool,
         create_snippet_message: Callable[[bytes, str, str, str], str],
         create_complete_message: Callable[[str], str],
         create_error_message: Callable[[str, str | None], str],
@@ -80,16 +81,20 @@ class VideoPipeline:
         Args:
             video_url: URL of video to process
             ws: WebSocket connection object
+            is_live: Whether the video is a live stream
             create_snippet_message: Function to create snippet message JSON
             create_complete_message: Function to create completion message JSON
             create_error_message: Function to create error message JSON
         """
 
         try:
-            logger.info(f"Starting pipeline for video: {video_url}")
+            stream_type = "live stream" if is_live else "video"
+            logger.info(f"Starting pipeline for {stream_type}: {video_url}")
 
-            # Stream and chunk the video (handles both live and non-live automatically)
-            logger.info(f"Processing video into {self.chunk_duration}-second chunks")
+            # Stream and chunk the video using the provided is_live parameter
+            logger.info(
+                f"Processing {stream_type} into {self.chunk_duration}-second chunks"
+            )
 
             chunk_index = 0
             for chunk_data in stream_and_chunk_video(
@@ -97,7 +102,7 @@ class VideoPipeline:
                 chunk_duration=self.chunk_duration,
                 format_selector=self.format_selector,
                 additional_options=["--no-part"],  # Don't use .part files
-                auto_detect_live=True,  # Automatically detect and handle live streams
+                is_live=is_live,
             ):
                 logger.info(f"Processing chunk {chunk_index + 1}")
 
