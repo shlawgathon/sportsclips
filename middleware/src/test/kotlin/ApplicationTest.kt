@@ -18,7 +18,7 @@ class ApplicationTest {
     @Test
     fun testYouTubeSearchFlow()
     {
-        val client = YouTubeKtorService("")
+        val client = YouTubeKtorService("AIzaSyDFcuKpHYXZLG6WGwC2w7KoTgcSvJuwr-Y")
         runBlocking {
             client.searchLiveSports().items.forEach { item ->
                 println(item.snippet)

@@ -3,6 +3,7 @@ package gg.growly
 import UserSession
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
+import gg.growly.services.Env
 import gg.growly.services.S3Helper
 import gg.growly.services.VoyageClient
 import io.ktor.http.*
@@ -36,11 +37,13 @@ fun Application.configureDatabases()
     val trackedVideoService = TrackedVideoService(mongoDatabase)
     val s3 = S3Helper(this)
     val s3u = gg.growly.services.S3Utility(
-        bucketName = environment.config.tryGetString("aws.s3.bucket") ?: "sportsclips-clip-store",
-        region = environment.config.tryGetString("aws.s3.region")
+        bucketName = "sportsclips-clip-store",
+        region = "us-east-1"
     )
     val voyage = VoyageClient(this)
-    val youtube = gg.growly.services.YouTubeKtorService(environment.config.tryGetString("youtube.apiKey") ?: "")
+    val youtube = gg.growly.services.YouTubeKtorService(
+        Env.getRequired("YOUTUBE_API_KEY")
+    )
     val agent = gg.growly.services.AgentClient(this)
 
     // ========== Periodic YouTube Top Games Collector ==========
@@ -354,15 +357,7 @@ fun Application.configureDatabases()
  * */
 fun Application.connectToMongoDB(): MongoDatabase
 {
-    val user = environment.config.tryGetString("db.mongo.user")
-    val password = environment.config.tryGetString("db.mongo.password")
-    val host = environment.config.tryGetString("db.mongo.host") ?: "127.0.0.1"
-    val port = environment.config.tryGetString("db.mongo.port") ?: "27017"
-    val maxPoolSize = environment.config.tryGetString("db.mongo.maxPoolSize")?.toInt() ?: 20
-
-    val credentials = user?.let { userVal -> password?.let { passwordVal -> "$userVal:$passwordVal@" } }.orEmpty()
-    val uri = "mongodb://$credentials$host:$port/?maxPoolSize=$maxPoolSize&w=majority"
-
+    val uri = "mongodb://localhost:27017/?maxPoolSize=20&w=majority"
     val mongoClient = MongoClients.create(uri)
     val database = mongoClient.getDatabase("sportsclips-v1")
 

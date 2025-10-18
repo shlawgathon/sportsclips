@@ -21,7 +21,7 @@ import java.util.*
 import kotlin.coroutines.cancellation.CancellationException
 
 class AgentClient(application: Application) {
-    private val baseUrl: String = application.environment.config.tryGetString("agent.baseUrl") ?: "ws://localhost:8000"
+    private val baseUrl: String = "ws://localhost:5353"
     private val client = HttpClient(CIO) {
         install(WebSockets)
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }

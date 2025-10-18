@@ -13,7 +13,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 class VoyageClient(application: Application) {
-    private val apiKey: String? = application.environment.config.tryGetString("voyage.apiKey")
+    private val apiKey = Env.getRequired("VOYAGE_API_KEY")
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
