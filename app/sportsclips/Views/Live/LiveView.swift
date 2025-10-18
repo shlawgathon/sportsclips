@@ -2,40 +2,130 @@
 //  LiveView.swift
 //  sportsclips
 //
-//  Placeholder view for future live videos
+//  TikTok-style vertical scrolling live videos with live comments
 //
 
 import SwiftUI
 
 struct LiveView: View {
+    private let apiService = APIService.shared
+    @StateObject private var playerManager = VideoPlayerManager()
+    @StateObject private var localStorage = LocalStorageService.shared
+    @State private var liveVideos: [VideoClip] = []
+    @State private var currentIndex = 0
+    @State private var isLoading = false
+    
     var body: some View {
         ZStack {
-            // Background gradient
-            LinearGradient(
-                colors: [.black, .purple.opacity(0.3), .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            Color.black.ignoresSafeArea()
             
-            VStack(spacing: 20) {
-                Image(systemName: "video.circle")
-                    .font(.system(size: 80, weight: .light))
-                    .foregroundColor(.white.opacity(0.6))
-                
-                Text("Live Videos")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.white)
-                
-                Text("Coming Soon")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
-                
-                Text("Live sports streaming will be available here")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.white.opacity(0.5))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
+            if liveVideos.isEmpty && isLoading {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .scaleEffect(1.5)
+            } else if liveVideos.isEmpty {
+                // Empty state
+                VStack(spacing: 20) {
+                    Image(systemName: "video.circle")
+                        .font(.system(size: 80, weight: .light))
+                        .foregroundColor(.white.opacity(0.6))
+                    
+                    Text("No Live Streams")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(.white)
+                    
+                    Text("Check back later for live sports")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+            } else {
+                // TikTok-style vertical scroll - each scroll is full screen
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(liveVideos.enumerated()), id: \.element.id) { index, video in
+                                LiveVideoCell(
+                                    video: video,
+                                    playerManager: playerManager
+                                )
+                                .containerRelativeFrame([.horizontal, .vertical])
+                                .id(index)
+                                .onAppear {
+                                    currentIndex = index
+                                    playerManager.playVideo(for: video.videoURL)
+                                    localStorage.recordView(videoId: video.id)
+                                    
+                                    if index >= liveVideos.count - 2 {
+                                        loadMoreVideos()
+                                    }
+                                }
+                            }
+                            
+                            // Loading indicator
+                            if isLoading {
+                                HStack {
+                                    Spacer()
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(1.2)
+                                    Spacer()
+                                }
+                                .containerRelativeFrame(.vertical)
+                            }
+                        }
+                        .scrollTargetLayout()
+                    }
+                    .scrollTargetBehavior(.paging)
+                    .ignoresSafeArea()
+                }
+            }
+        }
+        .onAppear {
+            loadLiveVideos()
+        }
+    }
+    
+    private func loadLiveVideos() {
+        guard !isLoading else { return }
+        
+        isLoading = true
+        Task {
+            do {
+                // TODO: Replace with actual live streams endpoint
+                let videos = try await apiService.fetchVideos()
+                await MainActor.run {
+                    self.liveVideos = videos
+                    self.isLoading = false
+                    
+                    // Auto-play first video
+                    if !liveVideos.isEmpty {
+                        playerManager.playVideo(for: liveVideos[0].videoURL)
+                        localStorage.recordView(videoId: liveVideos[0].id)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func loadMoreVideos() {
+        guard !isLoading else { return }
+        
+        isLoading = true
+        Task {
+            do {
+                let newVideos = try await apiService.fetchVideos(page: (liveVideos.count / 10) + 1)
+                await MainActor.run {
+                    self.liveVideos.append(contentsOf: newVideos)
+                    self.isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoading = false
+                }
             }
         }
     }
