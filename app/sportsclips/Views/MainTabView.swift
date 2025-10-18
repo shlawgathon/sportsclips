@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab = 1 // Start with Highlight tab
+    @State private var selectedTab = 0 // Start with All tab
     @State private var isMenuVisible = true
     @State private var menuOffset: CGFloat = 0
     @State private var dragOffset: CGFloat = 0
@@ -97,27 +97,11 @@ struct DraggableGlassMenu: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
-        .background(
-            ZStack {
-                // Ultra-thin glass effect following Apple HIG
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        Capsule()
-                            .stroke(
-                                LinearGradient(
-                                    colors: [
-                                        .white.opacity(0.2),
-                                        .white.opacity(0.05)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 0.5
-                            )
-                    )
-            }
-            .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+        .liquidGlass(
+            material: .ultraThinMaterial,
+            cornerRadius: 25,
+            shadowRadius: 12,
+            glowIntensity: isDragging ? 0.2 : 0.1
         )
         .padding(.horizontal, 16)
         .padding(.bottom, -30) // No bottom padding - stick to bottom
@@ -151,6 +135,12 @@ struct DraggableGlassMenu: View {
                     }
                 }
         )
+        .onLongPressGesture(minimumDuration: 0.1, maximumDistance: .infinity, pressing: { pressing in
+            // Enhanced visual feedback on press
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isDragging = pressing
+            }
+        }, perform: {})
         .onTapGesture(count: 2) {
             // Double tap to toggle menu
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {

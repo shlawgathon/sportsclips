@@ -22,6 +22,13 @@ struct VideoFeedView: View {
     @State private var heartAnimations: [String: HeartAnimation] = [:] // Track heart animations
     @State private var showVideoControls: [String: Bool] = [:] // Track which videos should show controls
     @State private var pausedVideos: [String: Bool] = [:] // Track which videos are paused
+    @State private var errorMessage: String?
+    @State private var showingGameClips = false
+    @State private var selectedGameName = ""
+    @State private var currentVideoTimes: [String: Double] = [:] // Track current time for each video
+    @State private var allVideos: [VideoClip] = [] // All loaded videos
+    @State private var currentVideoIndex: Int = 0 // Current video being viewed
+    @State private var isLoadingMore: Bool = false // Loading more videos
     
     var body: some View {
         ZStack {
@@ -58,18 +65,33 @@ struct VideoFeedView: View {
                                             .fill(Color.clear)
                                             .frame(width: geometry.size.width, height: geometry.size.height)
                                             .contentShape(Rectangle())
-                                            .onTapGesture(count: 1) { location in
-                                                // Single tap to pause/play
-                                                handleSingleTap(for: video)
-                                            }
-                                            .onTapGesture(count: 2) { location in
-                                                // Double tap to like with location
-                                                handleDoubleTapLike(for: video, at: location)
-                                            }
-                                            .onLongPressGesture(minimumDuration: 0.5) {
-                                                // Long press to show controls
-                                                handleLongPress(for: video)
-                                            }
+                                            .gesture(
+                                                // Combined gesture to handle tap, double tap, and long press
+                                                DragGesture(minimumDistance: 0)
+                                                    .onEnded { value in
+                                                        // Single tap (no drag)
+                                                        if abs(value.translation.x) < 10 && abs(value.translation.y) < 10 {
+                                                            handleSingleTap(for: video)
+                                                        }
+                                                    }
+                                                    .simultaneously(with:
+                                                        TapGesture(count: 2)
+                                                            .onEnded { _ in
+                                                                // Double tap to like
+                                                                let location = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                                                                handleDoubleTapLike(for: video, at: location)
+                                                            }
+                                                    )
+                                                    .simultaneously(with:
+                                                        LongPressGesture(minimumDuration: 0.5)
+                                                            .onChanged { _ in
+                                                                handleLongPress(for: video)
+                                                            }
+                                                            .onEnded { _ in
+                                                                handleLongPressEnd(for: video)
+                                                            }
+                                                    )
+                                            )
                                             .zIndex(1) // Above video player
                                         
                                         // Video overlay with buttons and caption
@@ -78,17 +100,32 @@ struct VideoFeedView: View {
                                             
                                             HStack(alignment: .bottom) {
                                                 // Caption on the left
-                                                CaptionView(video: video)
+                                                CaptionView(
+                                                    video: video,
+                                                    onGameTap: {
+                                                        self.selectedGameName = self.extractGameName(from: video.caption)
+                                                        self.showingGameClips = true
+                                                    },
+                                                    showControls: showVideoControls[video.id] ?? false,
+                                                    currentTime: currentVideoTimes[video.id] ?? 0,
+                                                    duration: getDuration(for: video.id),
+                                                    onSeek: { time in
+                                                        seekToTime(for: video.id, time: time)
+                                                    }
+                                                )
                                                 
                                                 Spacer()
                                                 
                                                 // Action buttons on the right
                                                 VideoOverlayView(
                                                     video: video,
-                                                    isLiked: videoLikeStates[video.id] ?? false
+                                                    isLiked: videoLikeStates[video.id] ?? false,
+                                                    onLikeChanged: { newLikedState in
+                                                        videoLikeStates[video.id] = newLikedState
+                                                    }
                                                 )
                                             }
-                                            .padding(.bottom, 120) // Higher to avoid bottom menu overlap
+                                            .padding(.bottom, 80) // Same gap for both states
                                         }
                                         .zIndex(2) // Above everything else
                                         
@@ -98,14 +135,7 @@ struct VideoFeedView: View {
                                                 .zIndex(3) // Above everything
                                         }
                                         
-                                        // Custom video controls
-                                        CustomVideoControls(
-                                            video: video,
-                                            showControls: showVideoControls[video.id] ?? false,
-                                            playerManager: playerManager,
-                                            pausedVideos: $pausedVideos
-                                        )
-                                            .zIndex(4) // Above everything including heart
+                                        // Custom video controls (now integrated into CaptionView)
                                         
                                         // Glass play button overlay (shows when paused)
                                         if pausedVideos[video.id] == true {
@@ -158,8 +188,14 @@ struct VideoFeedView: View {
                                     .onAppear {
                                         // Update current index and play video
                                         currentIndex = index
+                                        currentVideoIndex = index
                                         playerManager.playVideo(for: video.videoURL)
                                         localStorage.recordView(videoId: video.id)
+                                        
+                                        // Check if we need to load more videos (when approaching end)
+                                        if index >= filteredVideos.count - 3 && !isLoadingMore {
+                                            preloadMoreVideos()
+                                        }
                                         
                                         // Load like state from local storage
                                         if let interaction = localStorage.getInteraction(for: video.id) {
@@ -167,8 +203,8 @@ struct VideoFeedView: View {
                                         }
                                         
                                         // Load more videos if near end
-                                        if index >= filteredVideos.count - 2 {
-                                            loadMoreVideos()
+                                        if index >= filteredVideos.count - 2 && !isLoadingMore {
+                                            preloadMoreVideos()
                                         }
                                     }
                                     .onDisappear {
@@ -235,6 +271,7 @@ struct VideoFeedView: View {
         }
         .onAppear {
             loadVideos()
+            startTimeUpdateTimer()
         }
         .onDisappear {
             playerManager.pauseAllVideos()
@@ -247,9 +284,11 @@ struct VideoFeedView: View {
         isLoading = true
         Task {
             do {
-                let newVideos = try await apiService.fetchVideos()
+                // Load initial batch of videos
+                let initialVideos = try await apiService.fetchVideos()
                 await MainActor.run {
-                    self.videos = newVideos
+                    self.allVideos = initialVideos
+                    self.videos = initialVideos
                     self.filterVideos()
                     self.isLoading = false
                     
@@ -258,6 +297,9 @@ struct VideoFeedView: View {
                         playerManager.playVideo(for: filteredVideos[0].videoURL)
                         localStorage.recordView(videoId: filteredVideos[0].id)
                     }
+                    
+                    // Start preloading more videos
+                    preloadMoreVideos()
                 }
             } catch {
                 await MainActor.run {
@@ -267,24 +309,58 @@ struct VideoFeedView: View {
         }
     }
     
-    private func loadMoreVideos() {
-        guard !isLoading else { return }
+    private func preloadMoreVideos() {
+        guard !isLoadingMore else { return }
         
-        isLoading = true
+        isLoadingMore = true
         Task {
-            do {
-                let newVideos = try await apiService.fetchVideos(page: (videos.count / 10) + 1)
-                await MainActor.run {
-                    self.videos.append(contentsOf: newVideos)
-                    self.filterVideos()
-                    self.isLoading = false
-                }
-            } catch {
-                await MainActor.run {
-                    self.isLoading = false
+            // Simulate loading 8 more videos sequentially (not in parallel)
+            for i in 1...8 {
+                do {
+                    // Simulate API delay
+                    try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds between each
+                    
+                    // Generate new video with unique content
+                    let newVideo = generateNewVideo(index: allVideos.count + i)
+                    
+                    await MainActor.run {
+                        self.allVideos.append(newVideo)
+                        self.videos = self.allVideos
+                        self.filterVideos()
+                    }
+                } catch {
+                    print("Error preloading video \(i): \(error)")
                 }
             }
+            
+            await MainActor.run {
+                self.isLoadingMore = false
+            }
         }
+    }
+    
+    private func generateNewVideo(index: Int) -> VideoClip {
+        let sports: [VideoClip.Sport] = [.football, .basketball, .soccer, .baseball, .tennis, .golf, .hockey, .boxing, .mma, .racing]
+        let sport = sports[index % sports.count]
+        
+        let captions = [
+            "Amazing \(sport.rawValue.lowercased()) moment! This incredible play will blow your mind! The athlete showed incredible skill and determination to pull off this spectacular move. Watch as they defy all odds and create a moment that will be remembered for years to come! 🏆",
+            "Unbelievable \(sport.rawValue.lowercased()) action! This is what peak performance looks like! The precision and timing required for this play is absolutely mind-blowing. Every second of this clip showcases the incredible talent and dedication of these athletes! ⚡",
+            "Incredible \(sport.rawValue.lowercased()) highlight! This play demonstrates why this sport is so exciting to watch! The combination of skill, strategy, and pure athleticism creates moments like this that keep fans on the edge of their seats! 🎯",
+            "Spectacular \(sport.rawValue.lowercased()) moment! This is the kind of play that makes you jump out of your seat! The athlete's incredible performance shows what years of training and dedication can achieve. This is sports at its finest! 🌟",
+            "Outstanding \(sport.rawValue.lowercased()) play! This incredible moment showcases the very best of what this sport has to offer! The skill, precision, and determination shown here is absolutely inspiring. This is why we love sports! 💪"
+        ]
+        
+        return VideoClip(
+            id: UUID().uuidString,
+            videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            caption: captions[index % captions.count],
+            sport: sport,
+            likes: Int.random(in: 1000...50000),
+            comments: Int.random(in: 50...1000),
+            shares: Int.random(in: 10...500),
+            createdAt: Date()
+        )
     }
     
     private func filterVideos() {
@@ -350,15 +426,63 @@ struct VideoFeedView: View {
     }
     
     private func handleLongPress(for video: VideoClip) {
-        // Show controls on long press
+        // Show controls on long press - they stay visible until user releases
         showVideoControls[video.id] = true
         
-        // Auto-hide controls after 3 seconds
+        print("🎬 Long pressed to show controls for video: \(video.id)")
+        print("🎬 showVideoControls[\(video.id)] = \(showVideoControls[video.id] ?? false)")
+    }
+    
+    private func handleLongPressEnd(for video: VideoClip) {
+        // Hide controls after 3 second delay to allow adjustment
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             showVideoControls[video.id] = false
+            print("🎬 Long press ended - hiding controls for video: \(video.id) after 3s delay")
         }
-        
-        print("Long pressed to show controls for video: \(video.id)")
+    }
+    
+    private func extractGameName(from caption: String) -> String {
+        // Extract game name from caption (simple implementation)
+        // For now, return the first part of the caption or a default
+        let words = caption.components(separatedBy: " ")
+        if words.count >= 2 {
+            return "\(words[0]) \(words[1])"
+        }
+        return "Game Highlights"
+    }
+    
+    private func getCurrentTime(for videoId: String) -> Double {
+        // Get current time from the video that matches this ID
+        if let video = filteredVideos.first(where: { $0.id == videoId }) {
+            return playerManager.getCurrentTime(for: video.videoURL)
+        }
+        return 0.0
+    }
+    
+    private func getDuration(for videoId: String) -> Double {
+        // Get duration from the video that matches this ID
+        if let video = filteredVideos.first(where: { $0.id == videoId }) {
+            let duration = playerManager.getDuration(for: video.videoURL)
+            return duration > 0 ? duration : 596.0 // Fallback for BigBuckBunny
+        }
+        return 596.0
+    }
+    
+    private func seekToTime(for videoId: String, time: Double) {
+        // Seek the video that matches this ID
+        if let video = filteredVideos.first(where: { $0.id == videoId }) {
+            playerManager.seekVideo(for: video.videoURL, to: time)
+        }
+    }
+    
+    private func startTimeUpdateTimer() {
+        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            // Update current time for all videos
+            for video in filteredVideos {
+                let currentTime = playerManager.getCurrentTime(for: video.videoURL)
+                currentVideoTimes[video.id] = currentTime
+            }
+        }
     }
 }
 
@@ -467,177 +591,6 @@ struct HeartAnimationView: View {
     }
 }
 
-struct CustomVideoControls: View {
-    let video: VideoClip
-    let showControls: Bool
-    @ObservedObject var playerManager: VideoPlayerManager
-    @Binding var pausedVideos: [String: Bool] // Add binding to track paused state
-    @State private var isPlaying = true
-    @State private var playbackRate: Float = 1.0
-    @State private var currentTime: Double = 0
-    @State private var duration: Double = 0
-    @State private var isDragging = false
-    
-    var body: some View {
-        VStack {
-            Spacer()
-            
-                    // Bottom controls bar
-                    VStack(spacing: 12) {
-                        // Progress slider - raised up
-                        HStack {
-                            Text(formatTime(currentTime))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.white.opacity(0.8))
-                                .frame(width: 40)
-                            
-                            Slider(value: $currentTime, in: 0...max(duration, 1.0), onEditingChanged: { editing in
-                                isDragging = editing
-                                if !editing {
-                                    print("🎬 Seeking to: \(currentTime) seconds")
-                                    seekToTime(currentTime)
-                                }
-                            })
-                            .accentColor(.white)
-                            .frame(height: 20)
-                            
-                            Text(formatTime(duration))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.white.opacity(0.8))
-                                .frame(width: 40)
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8) // Raise the slider up
-                
-                // Control buttons
-                HStack(spacing: 30) {
-                    // Play/Pause button
-                    Button(action: togglePlayPause) {
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(
-                                Circle()
-                                    .fill(.ultraThinMaterial)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(.white.opacity(0.2), lineWidth: 1)
-                                    )
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    
-                    // Speed button
-                    Button(action: toggleSpeed) {
-                        Text("\(playbackRate == 1.0 ? "1x" : "2x")")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: 44, height: 44)
-                            .background(
-                                Circle()
-                                    .fill(.ultraThinMaterial)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(.white.opacity(0.2), lineWidth: 1)
-                                    )
-                            )
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .onLongPressGesture(minimumDuration: 0.5) {
-                        // Long press for 2x speed
-                        setSpeed(2.0)
-                    }
-                    
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-            }
-            .padding(.bottom, 20)
-            .background(
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.7)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-        }
-                .opacity(showControls ? 1 : 0)
-                .onAppear {
-                    setupPlayerObserver()
-                }
-    }
-    
-    private func togglePlayPause() {
-        print("🎬 Toggle Play/Pause - Current state: \(isPlaying)")
-        if isPlaying {
-            playerManager.pauseVideo(for: video.videoURL)
-            // Set paused state to show glass button
-            pausedVideos[video.id] = true
-        } else {
-            playerManager.playVideo(for: video.videoURL)
-            // Clear paused state to hide glass button
-            pausedVideos[video.id] = false
-        }
-        isPlaying.toggle()
-        print("🎬 New state: \(isPlaying)")
-    }
-    
-    private func toggleSpeed() {
-        playbackRate = playbackRate == 1.0 ? 2.0 : 1.0
-        setSpeed(playbackRate)
-    }
-    
-    private func setSpeed(_ speed: Float) {
-        playbackRate = speed
-        let player = playerManager.getPlayer(for: video.videoURL)
-        player.rate = playbackRate
-        print("🎬 Set speed to: \(playbackRate)x")
-    }
-    
-    private func seekToTime(_ time: Double) {
-        playerManager.seekVideo(for: video.videoURL, to: time)
-    }
-    
-    private func formatTime(_ time: Double) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-    
-    private func setupPlayerObserver() {
-        let player = playerManager.getPlayer(for: video.videoURL)
-        
-        // Initialize current time and playing state using VideoPlayerManager methods
-        currentTime = playerManager.getCurrentTime(for: video.videoURL)
-        isPlaying = playerManager.isPlaying(for: video.videoURL)
-        
-        // Set initial duration with fallback
-        let playerDuration = playerManager.getDuration(for: video.videoURL)
-        if playerDuration > 0 {
-            self.duration = playerDuration
-        } else {
-            // Fallback duration for mock videos (BigBuckBunny is ~596 seconds)
-            self.duration = 596.0
-        }
-        
-        print("🎬 Video Controls Setup:")
-        print("🎬 Current Time: \(currentTime)")
-        print("🎬 Is Playing: \(isPlaying)")
-        print("🎬 Duration: \(duration)")
-        print("🎬 Player Rate: \(player.rate)")
-        
-        // Observe time changes - using CMTimeMake like the tutorial
-        _ = player.addPeriodicTimeObserver(forInterval: CMTimeMake(value: 1, timescale: 10), queue: .main) { time in
-            if !isDragging {
-                let timeSeconds = time.seconds
-                if timeSeconds.isFinite && timeSeconds >= 0 {
-                    currentTime = timeSeconds
-                }
-            }
-        }
-    }
-}
 
 #Preview {
     VideoFeedView()

@@ -203,6 +203,11 @@ final class APIClient {
     }
 }
 
+// MARK: - Shared Instance
+extension APIClient {
+    static let shared = APIClient(baseURL: URL(string: "https://middleware.liftgate.io")!)
+}
+
 // Helper to encode unknown Encodable at runtime
 private struct AnyEncodable: Encodable {
     private let _encode: (Encoder) throws -> Void

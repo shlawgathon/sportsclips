@@ -29,29 +29,56 @@ struct LiquidGlassModifier: ViewModifier {
         content
             .background(
                 ZStack {
-                    // Outer glow
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(.white.opacity(glowIntensity))
-                        .blur(radius: shadowRadius * 2)
-                        .scaleEffect(1.1)
-                    
-                    // Main glass background
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(material)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: cornerRadius)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [
-                                            .white.opacity(0.2),
-                                            .white.opacity(0.05)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1
-                                )
-                        )
+                    // Use Capsule for fully rounded corners (when cornerRadius >= 20)
+                    if cornerRadius >= 20 {
+                        // Outer glow
+                        Capsule()
+                            .fill(.white.opacity(glowIntensity))
+                            .blur(radius: shadowRadius * 2)
+                            .scaleEffect(1.1)
+                        
+                        // Main glass background
+                        Capsule()
+                            .fill(material)
+                            .overlay(
+                                Capsule()
+                                    .stroke(
+                                        LinearGradient(
+                                            colors: [
+                                                .white.opacity(0.2),
+                                                .white.opacity(0.05)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 1
+                                    )
+                            )
+                    } else {
+                        // Outer glow
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .fill(.white.opacity(glowIntensity))
+                            .blur(radius: shadowRadius * 2)
+                            .scaleEffect(1.1)
+                        
+                        // Main glass background
+                        RoundedRectangle(cornerRadius: cornerRadius)
+                            .fill(material)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: cornerRadius)
+                                    .stroke(
+                                        LinearGradient(
+                                            colors: [
+                                                .white.opacity(0.2),
+                                                .white.opacity(0.05)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 1
+                                    )
+                            )
+                    }
                 }
             )
             .shadow(
