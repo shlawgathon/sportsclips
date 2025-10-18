@@ -23,16 +23,9 @@ struct VideoPlayerView: View {
                     .clipped()
                     .ignoresSafeArea()
                     .onAppear {
-                        // Hide video controls
+                        // Hide video controls - simplified approach
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                               let window = windowScene.windows.first {
-                                window.subviews.forEach { subview in
-                                    if let videoPlayerView = findVideoPlayerView(in: subview) {
-                                        videoPlayerView.showsPlaybackControls = false
-                                    }
-                                }
-                            }
+                            // The VideoPlayer will handle hiding controls automatically
                         }
                     }
             } else {
@@ -51,29 +44,16 @@ struct VideoPlayerView: View {
             setupPlayer()
         }
         .onDisappear {
-            playerManager.pauseVideo(for: video.videoURL)
+            playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
         }
-    }
-    
-    private func findVideoPlayerView(in view: UIView) -> AVPlayerViewController? {
-        // Look for AVPlayerViewController in the view hierarchy
-        for subview in view.subviews {
-            if let playerVC = subview as? AVPlayerViewController {
-                return playerVC
-            }
-            if let found = findVideoPlayerView(in: subview) {
-                return found
-            }
-        }
-        return nil
     }
     
     private func setupPlayer() {
-        player = playerManager.getPlayer(for: video.videoURL)
-        playerManager.playVideo(for: video.videoURL)
+        player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
+        // Don't auto-play here - let VideoFeedView handle play/pause logic
     }
 }
 
 #Preview {
-    VideoPlayerView(video: VideoClip.mock, playerManager: VideoPlayerManager())
+    VideoPlayerView(video: VideoClip.mock, playerManager: VideoPlayerManager.shared)
 }

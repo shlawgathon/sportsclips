@@ -22,14 +22,46 @@ class APIService {
             // let clips = try await apiClient.listClips()
             // return clips.map { convertClipToVideoClip($0) }
             
-            // Simulate network delay
-            try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            // Simulate network delay (reduced for better performance)
+            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
             
             return VideoClip.mockArray
         } catch {
             print("Failed to fetch videos: \(error)")
             // Return mock data as fallback
             return VideoClip.mockArray
+        }
+    }
+    
+    /// Fetch a specific clip by ID and return a VideoClip with the presigned video URL
+    func fetchVideoClip(clipId: String) async throws -> VideoClip {
+        do {
+            // Fetch clip details from API
+            let clip = try await apiClient.getClip(id: clipId)
+            
+            // Convert to VideoClip
+            let videoClip = VideoClip.fromClip(clip, clipId: clipId)
+            
+            // Fetch presigned download URL
+            let videoURL = try await videoClip.fetchVideoURL()
+            
+            // Create new VideoClip with the actual video URL
+            return VideoClip(
+                id: videoClip.id,
+                videoURL: videoURL,
+                caption: videoClip.caption,
+                sport: videoClip.sport,
+                likes: videoClip.likes,
+                comments: videoClip.comments,
+                shares: videoClip.shares,
+                createdAt: videoClip.createdAt,
+                s3Key: videoClip.s3Key,
+                title: videoClip.title,
+                description: videoClip.description
+            )
+        } catch {
+            print("Failed to fetch video clip \(clipId): \(error)")
+            throw error
         }
     }
     

@@ -10,7 +10,7 @@ import AVFoundation
 
 struct GameClipsView: View {
     let gameName: String
-    @StateObject private var playerManager = VideoPlayerManager()
+    @StateObject private var playerManager = VideoPlayerManager.shared
     @StateObject private var localStorage = LocalStorageService.shared
     @State private var videos: [VideoClip] = []
     @State private var filteredVideos: [VideoClip] = []
@@ -21,6 +21,9 @@ struct GameClipsView: View {
     @State private var showVideoControls: [String: Bool] = [:]
     @State private var pausedVideos: [String: Bool] = [:]
     @State private var currentVideoTimes: [String: Double] = [:] // Track current time for each video
+    @State private var timeUpdateTimer: Timer?
+    @State private var doubleTapInProgress: [String: Bool] = [:] // Track if double tap is in progress
+    @State private var controlShowTimes: [String: Date] = [:] // Track when controls were shown for each video
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
@@ -58,19 +61,36 @@ struct GameClipsView: View {
                                             .fill(Color.clear)
                                             .frame(width: geometry.size.width, height: geometry.size.height)
                                             .contentShape(Rectangle())
-                                            .onTapGesture(count: 1) { location in
-                                                handleSingleTap(for: video)
-                                            }
-                                            .onTapGesture(count: 2) { location in
-                                                handleDoubleTapLike(for: video, at: location)
-                                            }
-                                            .onLongPressGesture(minimumDuration: 0.5, maximumDistance: .infinity, pressing: { pressing in
-                                                if pressing {
-                                                    handleLongPress(for: video)
-                                                } else {
-                                                    handleLongPressEnd(for: video)
-                                                }
-                                            }, perform: {})
+                                            .simultaneousGesture(
+                                                // Long press gesture for slider controls (more restrictive to avoid scroll conflicts)
+                                                LongPressGesture(minimumDuration: 1.0, maximumDistance: 10)
+                                                    .onEnded { _ in
+                                                        handleLongPress(for: video)
+                                                    }
+                                            )
+                                            .simultaneousGesture(
+                                                // Tap gesture for pause/play
+                                                TapGesture(count: 1)
+                                                    .onEnded { _ in
+                                                        // Only handle single tap if double tap is not in progress
+                                                        if !(doubleTapInProgress[video.id] ?? false) {
+                                                            handleSingleTap(for: video)
+                                                        }
+                                                    }
+                                            )
+                                            .simultaneousGesture(
+                                                // Double tap gesture for like
+                                                TapGesture(count: 2)
+                                                    .onEnded { _ in
+                                                        doubleTapInProgress[video.id] = true
+                                                        handleDoubleTapLike(for: video, at: CGPoint(x: geometry.size.width/2, y: geometry.size.height/2))
+                                                        
+                                                        // Reset the flag after a short delay
+                                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                            doubleTapInProgress[video.id] = false
+                                                        }
+                                                    }
+                                            )
                                             .zIndex(1)
                                         
                                         // Video overlay with buttons and caption
@@ -89,6 +109,23 @@ struct GameClipsView: View {
                                                                 duration: getDuration(for: video.id),
                                                                 onSeek: { time in
                                                                     seekToTime(for: video.id, time: time)
+                                                                },
+                                                                onDragStart: {
+                                                                    // Keep controls visible when dragging starts
+                                                                    showVideoControls[video.id] = true
+                                                                    // Remove the show time so controls don't auto-hide while dragging
+                                                                    let removedTime = controlShowTimes.removeValue(forKey: video.id)
+                                                                    print("🎬 Drag started for video: \(video.id)")
+                                                                    print("🎬 Removed show time: \(removedTime?.description ?? "none")")
+                                                                    print("🎬 Controls will stay visible while dragging")
+                                                                },
+                                                                onDragEnd: {
+                                                                    // Reset the 3-second timer when dragging ends
+                                                                    let newShowTime = Date()
+                                                                    controlShowTimes[video.id] = newShowTime
+                                                                    print("🎬 Drag ended for video: \(video.id)")
+                                                                    print("🎬 New show time recorded: \(newShowTime)")
+                                                                    print("🎬 Timer will auto-hide controls at: \(Date(timeIntervalSinceNow: 3.0))")
                                                                 }
                                                             )
                                                 
@@ -119,7 +156,7 @@ struct GameClipsView: View {
                                                     .ignoresSafeArea()
                                                 
                                                 Button(action: {
-                                                    playerManager.playVideo(for: video.videoURL)
+                                                    playerManager.playVideo(for: video.videoURL, videoId: video.id)
                                                     pausedVideos[video.id] = false
                                                 }) {
                                                     ZStack {
@@ -159,16 +196,21 @@ struct GameClipsView: View {
                                     .id(index)
                                     .onAppear {
                                         currentIndex = index
-                                        playerManager.playVideo(for: video.videoURL)
+                                        playerManager.playVideo(for: video.videoURL, videoId: video.id)
                                         localStorage.recordView(videoId: video.id)
                                         
                                         if let interaction = localStorage.getInteraction(for: video.id) {
                                             videoLikeStates[video.id] = interaction.liked
                                         }
                                     }
-                                    .onDisappear {
-                                        playerManager.pauseVideo(for: video.videoURL)
-                                    }
+        .onDisappear {
+            playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
+            
+            // Clean up control states to prevent UI breaking
+            showVideoControls[video.id] = false
+            controlShowTimes.removeValue(forKey: video.id)
+            heartAnimations[video.id] = nil
+        }
                                 }
                             }
                         }
@@ -178,7 +220,7 @@ struct GameClipsView: View {
                             
                             if newIndex < videos.count {
                                 let currentVideo = videos[newIndex]
-                                playerManager.playVideo(for: currentVideo.videoURL)
+                                playerManager.playVideo(for: currentVideo.videoURL, videoId: currentVideo.id)
                                 localStorage.recordView(videoId: currentVideo.id)
                             }
                         }
@@ -229,8 +271,41 @@ struct GameClipsView: View {
             loadGameClips()
             startTimeUpdateTimer()
         }
+        .onChange(of: localStorage.interactions) { _, _ in
+            // React to changes in local storage interactions
+            print("🔄 GameClipsView: LocalStorage interactions changed, refreshing state")
+            
+            // Update like states for all videos
+            for video in filteredVideos {
+                if let interaction = localStorage.getInteraction(for: video.id) {
+                    let storedLikedState = interaction.liked
+                    if videoLikeStates[video.id] != storedLikedState {
+                        videoLikeStates[video.id] = storedLikedState
+                        print("🔄 GameClipsView: Updated like state to \(storedLikedState) for video \(video.id)")
+                    }
+                }
+            }
+            
+            // Force UI refresh by updating a dummy state
+            DispatchQueue.main.async {
+                // Trigger a state change to force UI refresh
+                self.currentIndex = self.currentIndex
+            }
+        }
         .onDisappear {
             playerManager.pauseAllVideos()
+            stopTimeUpdateTimer()
+            
+            // Clean up unused players to free memory
+            let activeVideoIds = filteredVideos.map { $0.id }
+            playerManager.cleanupUnusedPlayers(activeVideoIds: activeVideoIds)
+            
+            // Clean up all control states to prevent UI breaking
+            showVideoControls.removeAll()
+            controlShowTimes.removeAll()
+            heartAnimations.removeAll()
+            
+            print("🎬 GameClipsView disappeared - cleaned up resources")
         }
     }
     
@@ -251,7 +326,7 @@ struct GameClipsView: View {
                     self.isLoading = false
                     
                     if !gameVideos.isEmpty {
-                        playerManager.playVideo(for: gameVideos[0].videoURL)
+                        playerManager.playVideo(for: gameVideos[0].videoURL, videoId: gameVideos[0].id)
                         localStorage.recordView(videoId: gameVideos[0].id)
                     }
                 }
@@ -264,12 +339,12 @@ struct GameClipsView: View {
     }
     
     private func handleSingleTap(for video: VideoClip) {
-        let player = playerManager.getPlayer(for: video.videoURL)
+        let player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
         if player.timeControlStatus == .playing {
-            playerManager.pauseVideo(for: video.videoURL)
+            playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
             pausedVideos[video.id] = true
         } else {
-            playerManager.playVideo(for: video.videoURL)
+            playerManager.playVideo(for: video.videoURL, videoId: video.id)
             pausedVideos[video.id] = false
         }
     }
@@ -302,23 +377,21 @@ struct GameClipsView: View {
     }
     
     private func handleLongPress(for video: VideoClip) {
-        // Show controls on long press - they stay visible until user releases
+        // Show controls on long press
+        let showTime = Date()
         showVideoControls[video.id] = true
+        controlShowTimes[video.id] = showTime // Record when controls were shown
+        
         print("🎬 Long pressed to show controls for video: \(video.id)")
+        print("🎬 Control show time recorded: \(showTime)")
+        print("🎬 Timer will auto-hide controls at: \(Date(timeIntervalSinceNow: 3.0))")
     }
     
-    private func handleLongPressEnd(for video: VideoClip) {
-        // Hide controls after 3 second delay to allow adjustment
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            showVideoControls[video.id] = false
-            print("🎬 Long press ended - hiding controls for video: \(video.id) after 3s delay")
-        }
-    }
     
     private func getCurrentTime(for videoId: String) -> Double {
         // Get current time from the video that matches this ID
         if let video = self.filteredVideos.first(where: { $0.id == videoId }) {
-            return playerManager.getCurrentTime(for: video.videoURL)
+            return playerManager.getCurrentTime(for: video.videoURL, videoId: video.id)
         }
         return 0.0
     }
@@ -326,7 +399,7 @@ struct GameClipsView: View {
     private func getDuration(for videoId: String) -> Double {
         // Get duration from the video that matches this ID
         if let video = self.filteredVideos.first(where: { $0.id == videoId }) {
-            let duration = playerManager.getDuration(for: video.videoURL)
+            let duration = playerManager.getDuration(for: video.videoURL, videoId: video.id)
             return duration > 0 ? duration : 596.0 // Fallback for BigBuckBunny
         }
         return 596.0
@@ -335,19 +408,48 @@ struct GameClipsView: View {
     private func seekToTime(for videoId: String, time: Double) {
         // Seek the video that matches this ID
         if let video = self.filteredVideos.first(where: { $0.id == videoId }) {
-            playerManager.seekVideo(for: video.videoURL, to: time)
+            playerManager.seekVideo(for: video.videoURL, videoId: video.id, to: time)
         }
     }
     
-    private func startTimeUpdateTimer() {
-        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-            // Update current time for all videos
-            for video in filteredVideos {
-                let currentTime = playerManager.getCurrentTime(for: video.videoURL)
-                currentVideoTimes[video.id] = currentTime
+        private func startTimeUpdateTimer() {
+            // Invalidate existing timer to prevent duplicates
+            timeUpdateTimer?.invalidate()
+            
+            print("🎬 Starting time update timer for GameClipsView")
+            
+            timeUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                // Update current time for all videos
+                for video in filteredVideos {
+                    let currentTime = playerManager.getCurrentTime(for: video.videoURL, videoId: video.id)
+                    currentVideoTimes[video.id] = currentTime
+                    
+                    // Check if controls should be hidden (3 seconds after showing)
+                    if let showTime = controlShowTimes[video.id] {
+                        let elapsed = Date().timeIntervalSince(showTime)
+                        if elapsed >= 3.0 {
+                            print("🎬 Timer check: Hiding controls for video \(video.id) after \(String(format: "%.1f", elapsed))s")
+                            showVideoControls[video.id] = false
+                            controlShowTimes.removeValue(forKey: video.id)
+                            print("🎬 Auto-hiding controls for video: \(video.id) after 3s")
+                        } else {
+                            // Debug: Log remaining time every 0.5 seconds
+                            if Int(elapsed * 10) % 5 == 0 {
+                                let remaining = 3.0 - elapsed
+                                print("🎬 Timer check: Video \(video.id) controls visible for \(String(format: "%.1f", elapsed))s, remaining: \(String(format: "%.1f", remaining))s")
+                            }
+                        }
+                    }
+                }
             }
         }
+    
+    private func stopTimeUpdateTimer() {
+        print("🎬 Stopping time update timer for GameClipsView")
+        timeUpdateTimer?.invalidate()
+        timeUpdateTimer = nil
     }
+    
 }
 
 #Preview {

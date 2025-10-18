@@ -14,12 +14,15 @@ struct CaptionView: View {
     let currentTime: Double
     let duration: Double
     let onSeek: (Double) -> Void
+    let onDragStart: (() -> Void)?
+    let onDragEnd: (() -> Void)?
     @State private var sliderTime: Double = 0
     @State private var jiggleScale: CGFloat = 1.0
     @State private var isExpanded: Bool = false
+    @State private var isDragging: Bool = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             // Sport category
             HStack(spacing: 8) {
                 Image(systemName: video.sport.icon)
@@ -30,34 +33,47 @@ struct CaptionView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white.opacity(0.8))
             }
+            .padding(.bottom, 8)
             
-                    // Caption text with expandable "see more/less"
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(video.caption)
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundColor(.white)
-                            .lineLimit(isExpanded ? nil : 3)
-                            .multilineTextAlignment(.leading)
-                        
-                        // Show "see more" or "see less" button if text is long
-                        if video.caption.count > 80 {
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    isExpanded.toggle()
-                                }
-                            }) {
-                                Text(isExpanded ? "see less" : "see more")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.8))
-                                    .underline()
-                            }
+            // Title and description with expandable "see more/less"
+            VStack(alignment: .leading, spacing: 4) {
+                // Show title if available
+                if let title = video.title, !title.isEmpty {
+                    Text(title)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                
+                // Show description/caption
+                let displayText = video.description ?? video.caption
+                Text(displayText)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(.white)
+                    .lineLimit(isExpanded ? nil : 3)
+                    .multilineTextAlignment(.leading)
+                
+                // Show "see more" or "see less" button if text is long
+                if displayText.count > 80 {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isExpanded.toggle()
                         }
+                    }) {
+                        Text(isExpanded ? "see less" : "see more")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.8))
+                            .underline()
                     }
+                }
+            }
+            .padding(.bottom, 16) // Same spacing as bottom menu
             
                     // Fixed height container to prevent caption shifting
                     ZStack {
                         // Game bubble (always present, animated opacity)
-                        GameBubble(gameName: extractGameName(from: video.caption)) {
+                        GameBubble(gameName: extractGameName(from: video)) {
                             onGameTap()
                         }
                         .opacity(showControls ? 0 : 1)
@@ -89,6 +105,27 @@ struct CaptionView: View {
                             ), in: 0...max(duration, 1.0))
                             .accentColor(.white)
                             .frame(height: 20)
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { _ in
+                                        // Only handle drag events if controls are actually visible
+                                        guard showControls else { return }
+                                        
+                                        if !isDragging {
+                                            isDragging = true
+                                            onDragStart?()
+                                        }
+                                        
+                                        // Drag is in progress - no timer needed
+                                    }
+                                    .onEnded { _ in
+                                        // Only handle drag end if we were actually dragging
+                                        guard isDragging else { return }
+                                        
+                                        isDragging = false
+                                        onDragEnd?()
+                                    }
+                            )
                             
                             Text(formatTime(duration))
                                 .font(.system(size: 12, weight: .medium))
@@ -136,7 +173,7 @@ struct CaptionView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16) // Keep horizontal padding for caption text
-        .padding(.top, 4)         // Further reduced top padding for even spacing
+        .padding(.top, 8)         // Further reduced top padding for even spacing
         .padding(.bottom, 8)      // Reduced bottom padding to move controls down
         .background(
             ZStack {
@@ -159,15 +196,49 @@ struct CaptionView: View {
         .onChange(of: currentTime) { _, newTime in
             sliderTime = newTime
         }
+        .onDisappear {
+            // Clean up drag state when view disappears
+            isDragging = false
+        }
     }
     
-    private func extractGameName(from caption: String) -> String {
-        // Extract game name from caption (simple implementation)
-        // For now, return the first part of the caption or a default
-        let words = caption.components(separatedBy: " ")
+    private func extractGameName(from video: VideoClip) -> String {
+        // Try to extract game name from title first, then description
+        let textToAnalyze = video.title ?? video.description ?? video.caption
+        
+        // Look for common game patterns
+        let lowercasedText = textToAnalyze.lowercased()
+        
+        // Check for specific game types
+        if lowercasedText.contains("championship") || lowercasedText.contains("final") {
+            return "Championship Game"
+        } else if lowercasedText.contains("playoff") {
+            return "Playoff Game"
+        } else if lowercasedText.contains("semifinal") {
+            return "Semifinal"
+        } else if lowercasedText.contains("quarterfinal") {
+            return "Quarterfinal"
+        } else if lowercasedText.contains("derby") {
+            return "Derby Match"
+        } else if lowercasedText.contains("classic") {
+            return "Classic Match"
+        }
+        
+        // Extract from title if available
+        if let title = video.title, !title.isEmpty {
+            let words = title.components(separatedBy: " ")
+            if words.count >= 2 {
+                return "\(words[0]) \(words[1])"
+            }
+            return title
+        }
+        
+        // Fallback to first few words of description
+        let words = textToAnalyze.components(separatedBy: " ")
         if words.count >= 2 {
             return "\(words[0]) \(words[1])"
         }
+        
         return "Game Highlights"
     }
     
@@ -189,7 +260,9 @@ struct CaptionView: View {
                 showControls: false,
                 currentTime: 120.0,
                 duration: 596.0,
-                onSeek: { _ in }
+                onSeek: { _ in },
+                onDragStart: { print("Drag started") },
+                onDragEnd: { print("Drag ended") }
             )
         }
     }
