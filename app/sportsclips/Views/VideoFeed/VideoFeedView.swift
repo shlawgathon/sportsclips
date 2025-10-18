@@ -51,7 +51,7 @@ struct VideoFeedView: View {
                                         VStack {
                                             Spacer()
                                             
-                                            HStack {
+                                           HStack(alignment: .bottom) {
                                                 // Caption on the left
                                                 CaptionView(video: video)
                                                 
@@ -60,7 +60,7 @@ struct VideoFeedView: View {
                                                 // Action buttons on the right
                                                 VideoOverlayView(video: video)
                                             }
-                                            .padding(.bottom, 60) // Account for smaller bottom menu
+                                            .padding(.bottom, 80) // Higher to avoid bottom menu overlap
                                         }
                                     }
                                     .frame(width: geometry.size.width, height: geometry.size.height)
