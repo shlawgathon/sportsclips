@@ -86,6 +86,10 @@ struct VideoOverlayView: View {
             }
         }
         .padding(.trailing, 16) // Right padding for proper spacing from edge
+        .onAppear {
+            // Ensure comment count is properly initialized
+            commentCount = video.comments
+        }
     }
     
     private func shareVideo() {
