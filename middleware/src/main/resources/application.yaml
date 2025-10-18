@@ -1,6 +1,25 @@
 ktor:
   application:
     modules:
-      - gg.growly.ApplicationKt.module
+      - ApplicationKt.module
   deployment:
     port: 8080
+
+# Database configuration
+db:
+  mongo:
+    host: 127.0.0.1
+    port: 27017
+    database:
+      name: sportsclips
+
+aws:
+  s3:
+    region: us-east-1
+    endpoint: ${AWS_S3_BUCKET_ENDPOINT}
+    bucket: sportsclips-clip-store
+  accessKeyId: ${AWS_ACCESS_KEY_ID}
+  secretAccessKey: ${AWS_SECRET_ACCESS_KEY}
+
+voyage:
+  apiKey: ${VOYAGE_API_KEY}
