@@ -8,3 +8,10 @@ dependencies = [
     "flask>=3.1.2",
     "yt-dlp>=2025.10.14",
 ]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18.2",
+    "pytest>=8.4.2",
+    "ruff>=0.14.1",
+]
