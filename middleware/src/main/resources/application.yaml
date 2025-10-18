@@ -16,16 +16,16 @@ db:
 aws:
   s3:
     region: us-east-1
-    endpoint: https://9863c39a384de0942d9656f9241489dc.r2.cloudflarestorage.com
+    endpoint: https://ID.r2.cloudflarestorage.com
     bucket: sportsclips-clip-store
-  accessKeyId: 3d863e734b8a07d7ece1f2315f046fe0
-  secretAccessKey: 2d2e1b3b666d918628a8869a6ce7317767d6e88b0b3713514adf42bc18968033
+  accessKeyId: ID
+  secretAccessKey: KEY
 
 voyage:
-  apiKey: pa-EpNuos61UD4lgRcvbaytNUSskOcioKzXUYwRni98f7R
+  apiKey: VOYAGER
 
 youtube:
-  apiKey: YOUR_YOUTUBE_API_KEY
+  apiKey: YOUTUBE
 
 agent:
   baseUrl: ws://localhost:8000

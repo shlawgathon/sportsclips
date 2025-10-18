@@ -14,6 +14,13 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.sessions.*
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 fun Application.configureDatabases()
 {
@@ -39,45 +46,52 @@ fun Application.configureDatabases()
     // ========== Periodic YouTube Top Games Collector ==========
     // Every minute, query YouTube for top live videos per sport and catalog them.
     // Keeps LiveGame and TrackedVideo collections fresh with top 10 items per sport.
-    kotlinx.coroutines.launch {
-        try {
-            while (kotlinx.coroutines.isActive) {
+    run {
+        val schedulerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var schedulerJob: Job? = null
+        environment.monitor.subscribe(ApplicationStopped) { schedulerJob?.cancel() }
+        environment.monitor.subscribe(ApplicationStarted) {
+            schedulerJob = schedulerScope.launch {
                 try {
-                    val sports = Sport.values().filter { it != Sport.All }
-                    for (sp in sports) {
+                    while (isActive) {
                         try {
-                            val resp = youtube.searchLiveSports("${'$'}{sp.name} live", 10)
-                            resp.items.forEach { item ->
-                                val videoId = item.id.videoId
-                                val title = item.snippet.title
-                                val sourceUrl = "https://www.youtube.com/watch?v=${'$'}videoId"
-                                // Ensure game exists/upsert
-                                try { liveGameService.create(LiveGame(gameId = videoId, name = title, sport = sp)) } catch (_: Exception) {}
-                                // Track video in catalog as Queued if new
+                            val sports = Sport.values().filter { it != Sport.All }
+                            for (sp in sports) {
                                 try {
-                                    trackedVideoService.upsert(
-                                        TrackedVideo(
-                                            youtubeVideoId = videoId,
-                                            sourceUrl = sourceUrl,
-                                            sport = sp,
-                                            gameName = title,
-                                            status = ProcessingStatus.Queued
-                                        )
-                                    )
-                                } catch (_: Exception) {}
+                                    val resp = youtube.searchLiveSports("${sp.name} live", 10)
+                                    resp.items.forEach { item ->
+                                        val videoId = item.id.videoId
+                                        val title = item.snippet.title
+                                        val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
+                                        // Ensure game exists/upsert
+                                        try { liveGameService.create(LiveGame(gameId = videoId, name = title, sport = sp)) } catch (_: Exception) {}
+                                        // Track video in catalog as Queued if new
+                                        try {
+                                            trackedVideoService.upsert(
+                                                TrackedVideo(
+                                                    youtubeVideoId = videoId,
+                                                    sourceUrl = sourceUrl,
+                                                    sport = sp,
+                                                    gameName = title,
+                                                    status = ProcessingStatus.Queued
+                                                )
+                                            )
+                                        } catch (_: Exception) {}
+                                    }
+                                } catch (e: Exception) {
+                                    // swallow sport-specific errors to keep loop healthy
+                                }
                             }
-                        } catch (e: Exception) {
-                            // swallow sport-specific errors to keep loop healthy
+                        } catch (_: Exception) {
+                            // ignore outer loop errors
                         }
+                        // Sleep for one minute
+                        kotlinx.coroutines.delay(60_000)
                     }
                 } catch (_: Exception) {
-                    // ignore outer loop errors
+                    // exiting scheduler
                 }
-                // Sleep for one minute
-                kotlinx.coroutines.delay(60_000)
             }
-        } catch (_: Exception) {
-            // exiting scheduler
         }
     }
 
