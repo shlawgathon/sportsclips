@@ -11,6 +11,66 @@ from src.stream import stream_video_chunks, stream_video_to_file
 class TestStreamVideoChunks:
     """Integration tests for video streaming functionality."""
 
+    def test_stream_video_chunks_live_from_edge(self):
+        """Test streaming live video from the live edge (current point)."""
+        # Note: This test uses a sample URL - replace with actual live stream for real testing
+        # Most live streams are ephemeral, so we'll use a mock to verify the correct options
+        test_url = "https://www.youtube.com/watch?v=jfKfPfyJRdk"  # 24/7 lofi stream
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.stdout = MagicMock()
+            mock_process.stderr = MagicMock()
+            mock_process.stdout.read.return_value = b""  # Empty to end loop
+            mock_process.returncode = 0
+            mock_process.poll.return_value = 0
+            mock_popen.return_value = mock_process
+
+            try:
+                list(stream_video_chunks(test_url, chunk_size=64 * 1024))
+            except StopIteration:
+                pass
+
+            # Verify the command includes live stream options
+            call_args = mock_popen.call_args[0][0]
+            assert "--no-live-from-start" in call_args, (
+                "Should use --no-live-from-start by default"
+            )
+            assert "--hls-use-mpegts" in call_args, (
+                "Should use HLS MPEGTS for live streams"
+            )
+
+    def test_stream_video_chunks_live_from_start(self):
+        """Test streaming live video from the beginning."""
+        test_url = "https://www.youtube.com/watch?v=jfKfPfyJRdk"
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.stdout = MagicMock()
+            mock_process.stderr = MagicMock()
+            mock_process.stdout.read.return_value = b""
+            mock_process.returncode = 0
+            mock_process.poll.return_value = 0
+            mock_popen.return_value = mock_process
+
+            try:
+                list(
+                    stream_video_chunks(
+                        test_url, chunk_size=64 * 1024, live_from_start=True
+                    )
+                )
+            except StopIteration:
+                pass
+
+            # Verify the command includes live-from-start option
+            call_args = mock_popen.call_args[0][0]
+            assert "--live-from-start" in call_args, (
+                "Should use --live-from-start when requested"
+            )
+            assert "--hls-use-mpegts" in call_args, (
+                "Should use HLS MPEGTS for live streams"
+            )
+
     def test_stream_video_chunks_basic(self):
         """Test streaming video chunks from a valid URL."""
         # Use a very short test video (Big Buck Bunny trailer - public domain)
