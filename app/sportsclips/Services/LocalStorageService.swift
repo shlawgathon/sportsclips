@@ -21,6 +21,7 @@ struct UserProfile: Codable {
     let id: String
     let username: String
     let email: String
+    let sessionToken: String
     let isLoggedIn: Bool
     let lastLoginAt: Date?
 }
@@ -44,11 +45,12 @@ class LocalStorageService: ObservableObject {
     }
     
     // MARK: - User Profile Management
-    func login(username: String, email: String) {
+    func saveUserSession(userId: String, username: String, email: String, sessionToken: String) {
         let profile = UserProfile(
-            id: UUID().uuidString,
+            id: userId,
             username: username,
             email: email,
+            sessionToken: sessionToken,
             isLoggedIn: true,
             lastLoginAt: Date()
         )
@@ -59,10 +61,6 @@ class LocalStorageService: ObservableObject {
     func logout() {
         userProfile = nil
         saveProfile()
-    }
-    
-    func signup(username: String, email: String) {
-        login(username: username, email: email)
     }
     
     // MARK: - Video Interactions

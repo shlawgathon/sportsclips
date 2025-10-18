@@ -106,6 +106,7 @@ struct StatCard: View {
             id: "preview",
             username: "previewuser",
             email: "preview@example.com",
+            sessionToken: "preview_token",
             isLoggedIn: true,
             lastLoginAt: Date()
         ))

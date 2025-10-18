@@ -2,17 +2,14 @@
 //  ProfileView.swift
 //  sportsclips
 //
-//  Full-page user profile
+//  User profile placeholder
 //
 
 import SwiftUI
 
 struct ProfileView: View {
     @StateObject private var localStorage = LocalStorageService.shared
-    @State private var showingLogin = false
-    @State private var showingSignup = false
-    @State private var username = ""
-    @State private var email = ""
+    @State private var showingLogoutConfirmation = false
     
     var body: some View {
         ZStack {
@@ -24,89 +21,77 @@ struct ProfileView: View {
             )
             .ignoresSafeArea()
             
-            if let user = localStorage.userProfile {
-                // Logged in view
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // Profile header
-                        ProfileHeaderView(user: user)
+            VStack(spacing: 30) {
+                Spacer()
+                
+                // User icon
+                Image(systemName: "person.circle.fill")
+                    .font(.system(size: 80, weight: .light))
+                    .foregroundColor(.white.opacity(0.8))
+                
+                if let user = localStorage.userProfile {
+                    VStack(spacing: 12) {
+                        Text(user.username)
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.white)
                         
-                        // View history
-                        ViewHistoryView()
+                        Text(user.email)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white.opacity(0.7))
                     }
-                }
-            } else {
-                // Not logged in view
-                VStack(spacing: 30) {
-                    Spacer()
-                    
-                    // App logo/icon
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 80, weight: .light))
-                        .foregroundColor(.white.opacity(0.8))
-                    
-                    Text("Sports Clips")
-                        .font(.system(size: 32, weight: .bold))
+                } else {
+                    Text("Profile")
+                        .font(.system(size: 28, weight: .bold))
                         .foregroundColor(.white)
-                    
-                    Text("Watch the best sports moments")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white.opacity(0.7))
-                        .multilineTextAlignment(.center)
-                    
-                    Spacer()
-                    
-                    // Login/Signup buttons
-                    VStack(spacing: 16) {
-                        Button(action: { showingLogin = true }) {
-                            Text("Login")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 25))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 25)
-                                        .stroke(.white.opacity(0.2), lineWidth: 1)
-                                )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        Button(action: { showingSignup = true }) {
-                            Text("Sign Up")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.black)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(.white, in: RoundedRectangle(cornerRadius: 25))
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                    .padding(.horizontal, 40)
-                    .padding(.bottom, 100)
                 }
+                
+                Text("Profile features coming soon...")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                
+                Spacer()
+                
+                // Logout button
+                Button(action: {
+                    showingLogoutConfirmation = true
+                }) {
+                    Text("Logout")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(.red.opacity(0.3), in: RoundedRectangle(cornerRadius: 25))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 25)
+                                .stroke(.red.opacity(0.4), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.horizontal, 40)
+                .padding(.bottom, 100)
             }
         }
-        .sheet(isPresented: $showingLogin) {
-            LoginView(
-                username: $username,
-                email: $email,
-                isPresented: $showingLogin,
-                onLogin: { username, email in
-                    localStorage.login(username: username, email: email)
+        .confirmationDialog("Are you sure you want to logout?", isPresented: $showingLogoutConfirmation) {
+            Button("Logout", role: .destructive) {
+                Task {
+                    await handleLogout()
                 }
-            )
+            }
+            Button("Cancel", role: .cancel) {}
         }
-        .sheet(isPresented: $showingSignup) {
-            SignupView(
-                username: $username,
-                email: $email,
-                isPresented: $showingSignup,
-                onSignup: { username, email in
-                    localStorage.signup(username: username, email: email)
-                }
-            )
+    }
+    
+    // MARK: - Logout Handler
+    private func handleLogout() async {
+        // Attempt to invalidate session on server
+        if let sessionToken = localStorage.userProfile?.sessionToken {
+            try? await AuthService.shared.logout(sessionToken: sessionToken)
         }
+        
+        // Clear local session
+        localStorage.logout()
     }
 }
 

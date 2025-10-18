@@ -47,6 +47,7 @@ class APIService {
             id: userId,
             username: "testuser",
             email: "test@example.com",
+            sessionToken: "mock_session_token",
             isLoggedIn: true,
             lastLoginAt: Date()
         )
