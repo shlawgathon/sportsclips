@@ -146,11 +146,13 @@ def stream_and_chunk_live(
         if cookies_path:
             ytdlp_cmd.extend(["--cookies", cookies_path])
 
-        # Only add format selector if it's not the default
-        # Live streams with --live-from-start work best without explicit format selection
-        # as yt-dlp will choose appropriate DASH formats automatically
-        if format_selector and format_selector != "best[ext=mp4]/best":
+        # Always add format selector to ensure audio is included
+        # Use format that includes both video and audio
+        if format_selector:
             ytdlp_cmd.extend(["-f", format_selector])
+        else:
+            # Default to best video+audio for live streams
+            ytdlp_cmd.extend(["-f", "best"])
 
         if additional_options:
             ytdlp_cmd.extend(additional_options)
@@ -165,8 +167,14 @@ def stream_and_chunk_live(
             "ffmpeg",
             "-i",
             "pipe:0",  # Read from stdin
-            "-c",
-            "copy",  # Copy without re-encoding
+            "-c:v",
+            "copy",  # Copy video without re-encoding
+            "-c:a",
+            "copy",  # Copy audio without re-encoding
+            "-map",
+            "0:v?",  # Map video stream if present
+            "-map",
+            "0:a?",  # Map audio stream if present
             "-f",
             "segment",
             "-segment_time",
@@ -495,16 +503,20 @@ def stream_and_chunk_video(
                 "ffmpeg",
                 "-i",
                 str(video_file.absolute()),  # Use absolute path for input file
-                "-c",
-                "copy",  # Copy without re-encoding for speed
+                "-c:v",
+                "copy",  # Copy video without re-encoding for speed
+                "-c:a",
+                "copy",  # Copy audio without re-encoding for speed
+                "-map",
+                "0:v?",  # Map video stream if present
+                "-map",
+                "0:a?",  # Map audio stream if present
                 "-f",
                 "segment",
                 "-segment_time",
                 str(chunk_duration),
                 "-reset_timestamps",
                 "1",
-                "-map",
-                "0",
                 output_pattern,
             ]
 
