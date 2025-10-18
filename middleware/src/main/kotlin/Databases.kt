@@ -3,7 +3,7 @@ package gg.growly
 import UserSession
 import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
-import gg.growly.services.S3PresignHelper
+import gg.growly.services.S3Helper
 import gg.growly.services.VoyageClient
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -25,7 +25,7 @@ fun Application.configureDatabases()
     val clipService = ClipService(mongoDatabase)
     val commentService = CommentService(mongoDatabase)
     val likeService = LikeService(mongoDatabase)
-    val s3 = S3PresignHelper(this)
+    val s3 = S3Helper(this)
     val voyage = VoyageClient(this)
 
     @Serializable data class RegisterRequest(val username: String, val password: String, val profilePictureBase64: String? = null)
