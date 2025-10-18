@@ -12,8 +12,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 from .pipeline import VideoPipeline, create_highlight_pipeline
 from .stream import stream_and_chunk_video
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
