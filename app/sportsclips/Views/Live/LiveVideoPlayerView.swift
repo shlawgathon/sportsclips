@@ -14,7 +14,7 @@ struct LiveVideoPlayerView: View {
     @Binding var isLiked: Bool
     @Binding var showingCommentInput: Bool
     @State private var player: AVPlayer?
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -43,7 +43,7 @@ struct LiveVideoPlayerView: View {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                                     .scaleEffect(1.5)
-                                
+
                                 Text("LIVE")
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundColor(.red)
@@ -64,7 +64,7 @@ struct LiveVideoPlayerView: View {
         }
         }
     }
-    
+
     private func hideVideoControls() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
@@ -77,7 +77,7 @@ struct LiveVideoPlayerView: View {
             }
         }
     }
-    
+
     private func findVideoPlayerView(in view: UIView) -> AVPlayerViewController? {
         for subview in view.subviews {
             if let playerVC = subview as? AVPlayerViewController {
@@ -89,19 +89,19 @@ struct LiveVideoPlayerView: View {
         }
         return nil
     }
-    
+
     private func setupPlayer() {
         player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
         playerManager.playVideo(for: video.videoURL, videoId: video.id)
     }
 }
 
-#Preview {
-    LiveVideoPlayerView(
-        video: VideoClip.mock,
-        playerManager: VideoPlayerManager.shared,
-        isLiked: .constant(false),
-        showingCommentInput: .constant(false)
-    )
-}
+//#Preview {
+//    LiveVideoPlayerView(
+//        video: VideoClip.mock,
+//        playerManager: VideoPlayerManager.shared,
+//        isLiked: .constant(false),
+//        showingCommentInput: .constant(false)
+//    )
+//}
 

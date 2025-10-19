@@ -13,7 +13,7 @@ struct LiveVideoCell: View {
     @ObservedObject var playerManager: VideoPlayerManager
     @Binding var selectedSport: VideoClip.Sport
     let onSportChange: (VideoClip.Sport) -> Void
-    
+
     @State private var isLiked = false
     @State private var commentText = ""
     @State private var heartAnimation: HeartAnimation?
@@ -23,7 +23,7 @@ struct LiveVideoCell: View {
     @State private var showSportDropdown = false
     @State private var isSummaryExpanded = false
     @State private var showComments = true
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -35,7 +35,7 @@ struct LiveVideoCell: View {
                     showingCommentInput: .constant(false)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
+
                 // Invisible overlay for double-tap to like (excludes comment bar area)
                 VStack(spacing: 0) {
                     Color.clear
@@ -43,14 +43,14 @@ struct LiveVideoCell: View {
                         .onTapGesture(count: 2) {
                             handleDoubleTapLike(at: CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2))
                         }
-                    
+
                     // Empty space for comment bar and UI elements (not tappable for likes)
                     Spacer()
                         .frame(height: 320) // Enough space for comments, caption, and input
                 }
                 .allowsHitTesting(!isCommentFieldFocused) // Disable double-tap when typing
                 .zIndex(1)
-                
+
                 // Top bar - category, likes, and share
                 VStack {
                     HStack(spacing: 12) {
@@ -59,7 +59,7 @@ struct LiveVideoCell: View {
                             Circle()
                                 .fill(.red)
                                 .frame(width: 8, height: 8)
-                            
+
                             // Show icon if it exists in SF Symbols, otherwise show sport name
                             if UIImage(systemName: video.sport.icon) != nil {
                                 Image(systemName: video.sport.icon)
@@ -68,7 +68,7 @@ struct LiveVideoCell: View {
                                 Text(video.sport.rawValue)
                                     .font(.system(size: 12, weight: .semibold))
                             }
-                            
+
                             Text("LIVE")
                                 .font(.system(size: 11, weight: .bold))
                         }
@@ -95,13 +95,13 @@ struct LiveVideoCell: View {
                                             )
                                     )
                                     .shadow(color: .red.opacity(0.3), radius: 8, x: 0, y: 2)
-                                
+
                                 // Red tint overlay
                                 Capsule()
                                     .fill(.red.opacity(0.4))
                             }
                         )
-                        
+
                         // Sport filter button - same height as live tag
                         Button(action: {
                             showSportDropdown.toggle()
@@ -109,7 +109,7 @@ struct LiveVideoCell: View {
                             HStack(spacing: 6) {
                                 Image(systemName: "line.3.horizontal.decrease")
                                     .font(.system(size: 13, weight: .medium))
-                                
+
                                 Text(selectedSport == .all ? "All" : selectedSport.rawValue)
                                     .font(.system(size: 11, weight: .bold))
                             }
@@ -137,21 +137,21 @@ struct LiveVideoCell: View {
                                             )
                                     )
                                     .shadow(color: .white.opacity(0.2), radius: 8, x: 0, y: 2)
-                                
+
                                 // White tint overlay
                                 Capsule()
                                     .fill(.white.opacity(0.1))
                             }
                         )
-                        
+
                         Spacer()
-                        
+
                         // View count
                         HStack(spacing: 4) {
                             Image(systemName: "eye.fill")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.white.opacity(0.8))
-                            
+
                             Text("\(viewCount)")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white)
@@ -163,13 +163,13 @@ struct LiveVideoCell: View {
                             Capsule()
                                 .stroke(.white.opacity(0.2), lineWidth: 1)
                         )
-                        
+
                         // Like counter
                         HStack(spacing: 4) {
                             Image(systemName: isLiked ? "heart.fill" : "heart")
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundColor(isLiked ? .red : .white)
-                            
+
                             Text(formatCount(video.likes + (isLiked ? 1 : 0)))
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white)
@@ -184,26 +184,26 @@ struct LiveVideoCell: View {
                         .onTapGesture {
                             toggleLike()
                         }
-                        
+
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 50)
-                    
+
                     Spacer()
                 }
                 .zIndex(2)
-                
+
                 // Heart animation overlay
                 if let heartAnimation = heartAnimation {
                     HeartAnimationView(animation: heartAnimation)
                         .zIndex(3)
                         .allowsHitTesting(false)
                 }
-                
+
                 // Overlay content - comments, summary, and comment input
                 VStack(spacing: 0) {
                     Spacer()
-                    
+
                     // Left side - Caption and live comments (full width)
                     VStack(alignment: .leading, spacing: 8) {
                         // Live comments section (limited height) - hide when summary is expanded
@@ -211,22 +211,22 @@ struct LiveVideoCell: View {
                             LiveCommentsView(liveId: video.id)
                                 .frame(maxHeight: 180)
                         }
-                        
+
                         // Live summary with expand/collapse functionality
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
                                 Image(systemName: "livephoto")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(.red)
-                                
+
                                 Text("Live Summary")
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundColor(.white.opacity(0.9))
-                                
+
                                 Text("-")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(.white.opacity(0.6))
-                                
+
                                 Button(action: {
                                     withAnimation(.easeInOut(duration: 0.3)) {
                                         isSummaryExpanded.toggle()
@@ -237,9 +237,9 @@ struct LiveVideoCell: View {
                                         .foregroundColor(.white.opacity(0.8))
                                         .underline()
                                 }
-                                
+
                                 Spacer()
-                                
+
                                 // Hide comments button
                                 Button(action: {
                                     withAnimation(.easeInOut(duration: 0.3)) {
@@ -251,7 +251,7 @@ struct LiveVideoCell: View {
                                         .foregroundColor(.white.opacity(0.6))
                                 }
                             }
-                            
+
                             // Expanded summary content
                             if isSummaryExpanded {
                                 let liveSummary = generateLiveSummary(for: video)
@@ -265,7 +265,7 @@ struct LiveVideoCell: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
-                    
+
                     // Comment input with share button - positioned right below caption
                     HStack(spacing: 10) {
                         // Share button (left side)
@@ -282,7 +282,7 @@ struct LiveVideoCell: View {
                                         .stroke(.white.opacity(0.2), lineWidth: 1)
                                 )
                         }
-                        
+
                         // Comment input field (expandable)
                         TextField("Add a comment...", text: $commentText)
                             .focused($isCommentFieldFocused)
@@ -299,7 +299,7 @@ struct LiveVideoCell: View {
                             .onSubmit {
                                 sendComment()
                             }
-                        
+
                         // Send button (aligned to right)
                         Button(action: {
                             sendComment()
@@ -326,7 +326,7 @@ struct LiveVideoCell: View {
                     )
                 }
                 .zIndex(20) // Ensure comment section is above menu bar and dropdown
-                
+
                 // Sport filter dropdown - positioned as overlay
                 if showSportDropdown {
                     VStack {
@@ -348,12 +348,12 @@ struct LiveVideoCell: View {
                                                 Text(sport.rawValue)
                                                     .font(.system(size: 12, weight: .medium))
                                             }
-                                            
+
                                             Text(sport == .all ? "All" : sport.rawValue)
                                                 .font(.system(size: 12, weight: .medium))
-                                            
+
                                             Spacer()
-                                            
+
                                             if selectedSport == sport {
                                                 Image(systemName: "checkmark")
                                                     .font(.system(size: 12, weight: .medium))
@@ -379,10 +379,10 @@ struct LiveVideoCell: View {
                             )
                             .padding(.leading, 16)
                             .padding(.top, 100) // Position below the top bar
-                            
+
                             Spacer()
                         }
-                        
+
                         Spacer()
                     }
                     .zIndex(20) // Above everything else
@@ -394,10 +394,10 @@ struct LiveVideoCell: View {
             startViewCountUpdates()
         }
     }
-    
+
     private func toggleLike() {
         isLiked.toggle()
-        
+
         // Record interaction in local storage
         localStorage.recordInteraction(
             videoId: video.id,
@@ -405,19 +405,19 @@ struct LiveVideoCell: View {
             commented: false,
             shared: false
         )
-        
+
         // Haptic feedback
         if isLiked {
             let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
             impactFeedback.impactOccurred()
         }
     }
-    
+
     private func sendComment() {
         guard !commentText.isEmpty else { return }
-        
+
         let commentToSend = commentText
-        
+
         // Record comment interaction
         localStorage.recordInteraction(
             videoId: video.id,
@@ -425,21 +425,21 @@ struct LiveVideoCell: View {
             commented: true,
             shared: false
         )
-        
+
         // Send comment to API via service
         Task {
             await LiveCommentService.shared.postComment(commentToSend)
         }
-        
+
         // Clear input and dismiss keyboard
         commentText = ""
         isCommentFieldFocused = false
-        
+
         // Haptic feedback
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
     }
-    
+
     private func shareVideo() {
         // Record share interaction in local storage
         localStorage.recordInteraction(
@@ -448,37 +448,37 @@ struct LiveVideoCell: View {
             commented: false,
             shared: true
         )
-        
+
         // Haptic feedback
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
-        
+
         // Present share sheet
         let activityVC = UIActivityViewController(
             activityItems: [video.videoURL],
             applicationActivities: nil
         )
-        
+
         // Get the current window scene to present the share sheet
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let window = windowScene.windows.first,
            let rootViewController = window.rootViewController {
-            
+
             // For iPad, set the popover presentation controller
             if let popover = activityVC.popoverPresentationController {
                 popover.sourceView = window
                 popover.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
                 popover.permittedArrowDirections = []
             }
-            
+
             rootViewController.present(activityVC, animated: true)
         }
     }
-    
+
     private func handleDoubleTapLike(at location: CGPoint) {
         // Toggle like state
         isLiked.toggle()
-        
+
         // Record interaction in local storage
         localStorage.recordInteraction(
             videoId: video.id,
@@ -486,11 +486,11 @@ struct LiveVideoCell: View {
             commented: false,
             shared: false
         )
-        
+
         // Add haptic feedback
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
-        
+
         // Create heart animation
         let animation = HeartAnimation(
             id: UUID().uuidString,
@@ -498,24 +498,24 @@ struct LiveVideoCell: View {
             isLiked: isLiked
         )
         heartAnimation = animation
-        
+
         // Remove animation after it completes
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             heartAnimation = nil
         }
     }
-    
+
     private func startViewCountUpdates() {
         // Start with a random base view count
         viewCount = Int.random(in: 150...500)
-        
+
         // Update view count every 3-8 seconds with random increments
         Timer.scheduledTimer(withTimeInterval: Double.random(in: 3...8), repeats: true) { _ in
             withAnimation(.easeInOut(duration: 0.5)) {
                 // Random increment between 1-15 viewers
                 let increment = Int.random(in: 1...15)
                 viewCount += increment
-                
+
                 // Occasionally decrease by 1-5 viewers (people leaving)
                 if Int.random(in: 1...10) <= 2 {
                     let decrease = Int.random(in: 1...5)
@@ -524,7 +524,7 @@ struct LiveVideoCell: View {
             }
         }
     }
-    
+
     private func formatCount(_ count: Int) -> String {
         if count >= 1_000_000 {
             let millions = Double(count) / 1_000_000.0
@@ -544,11 +544,11 @@ struct LiveVideoCell: View {
             return "\(count)"
         }
     }
-    
+
     private func generateLiveSummary(for video: VideoClip) -> String {
         let sport = video.sport.rawValue
         let baseSummary = "Live \(sport) action happening right now! Join thousands of fans watching this exciting match. "
-        
+
         // Add sport-specific details
         let sportDetails: String
         switch video.sport {
@@ -575,17 +575,17 @@ struct LiveVideoCell: View {
         case .all:
             sportDetails = "Don't miss any of the action as athletes compete at the highest level in this live sporting event."
         }
-        
+
         return baseSummary + sportDetails
     }
-    
+
 }
 
-#Preview {
-    LiveVideoCell(
-        video: VideoClip.mock,
-        playerManager: VideoPlayerManager.shared,
-        selectedSport: .constant(.all),
-        onSportChange: { _ in }
-    )
-}
+//#Preview {
+//    LiveVideoCell(
+//        video: VideoClip.mock,
+//        playerManager: VideoPlayerManager.shared,
+//        selectedSport: .constant(.all),
+//        onSportChange: { _ in }
+//    )
+//}
