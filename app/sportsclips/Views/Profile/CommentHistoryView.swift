@@ -117,7 +117,8 @@ struct CommentHistoryRowItem: View {
                 
                 // Video title
                 HStack {
-                    Image(systemName: Sport(rawValue: comment.clip.clip.sport)?.icon ?? "sportscourt")
+                    // Sport icon based on API sport string
+                    Image(systemName: getSportIcon(for: comment.clip.clip.sport))
                         .font(.system(size: 14))
                         .foregroundColor(.white.opacity(0.7))
                     
@@ -156,6 +157,22 @@ struct CommentHistoryRowItem: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func getSportIcon(for sportString: String) -> String {
+        switch sportString.lowercased() {
+        case "football": return "football"
+        case "basketball": return "basketball"
+        case "soccer": return "soccerball"
+        case "baseball": return "baseball"
+        case "tennis": return "tennisball"
+        case "golf": return "golf"
+        case "hockey": return "hockey.puck"
+        case "boxing": return "boxing.glove"
+        case "mma": return "figure.martial.arts"
+        case "racing": return "car.racing"
+        default: return "sportscourt"
+        }
     }
     
     private func formatCount(_ count: Int) -> String {

@@ -9,7 +9,7 @@ import SwiftUI
 
 struct LikeHistoryView: View {
     @StateObject private var localStorage = LocalStorageService.shared
-    @State private var videos: [VideoClip] = []
+    @State private var videos: [(VideoClip, Int64)] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -50,8 +50,10 @@ struct LikeHistoryView: View {
 
                 ScrollView {
                     LazyVGrid(columns: gridColumns, spacing: 12) {
-                        ForEach(Array(videos.enumerated()), id: \.element.id) { index, video in
-                            LikeHistoryGridItem(video: video, index: index + 1, likedAt: Date(timeIntervalSince1970: TimeInterval(video.createdAt / 1000)))
+                        ForEach(Array(videos.enumerated()), id: \.element.0.id) { index, videoTuple in
+                            let (video, likedAt) = videoTuple
+                            // Convert Int64 timestamp to Date for display
+                            LikeHistoryGridItem(video: video, index: index + 1, likedAt: Date(timeIntervalSince1970: TimeInterval(likedAt / 1000)))
                         }
                     }
                     .padding(.horizontal, 20)
@@ -86,12 +88,14 @@ struct LikeHistoryView: View {
             }
             do {
                 let history = try await APIClient.shared.likeHistory(userId: userId)
-                let clips = try await withThrowingTaskGroup(of: VideoClip.self) { group in
+                let clips = try await withThrowingTaskGroup(of: (VideoClip, Int64).self) { group in
                     for item in history {
                         group.addTask {
-                            var model = VideoClip.fromClip(item.clip.clip, clipId: item.clip.id)
+                            let model = await MainActor.run {
+                                VideoClip.fromClip(item.clip.clip, clipId: item.clip.id)
+                            }
                             let url = try await model.fetchVideoURL()
-                            return VideoClip(
+                            let videoClip = VideoClip(
                                 id: model.id,
                                 videoURL: url,
                                 caption: model.caption,
@@ -105,10 +109,11 @@ struct LikeHistoryView: View {
                                 description: model.description,
                                 gameId: model.gameId
                             )
+                            return (videoClip, item.likedAt)
                         }
                     }
-                    var results: [VideoClip] = []
-                    for try await vc in group { results.append(vc) }
+                    var results: [(VideoClip, Int64)] = []
+                    for try await result in group { results.append(result) }
                     return results
                 }
                 await MainActor.run { self.videos = clips }
