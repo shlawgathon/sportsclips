@@ -117,7 +117,12 @@ final class APIClient {
         url.append(path: path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         var req = URLRequest(url: url)
         req.httpMethod = method
-        let (_, resp) = try await session.data(for: req)
+        print("[APIClient][DEBUG] Request: \(method) \(url.absoluteString) (no body)")
+        let started = Date()
+        let (data, resp) = try await session.data(for: req)
+        let elapsed = Date().timeIntervalSince(started)
+        guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        print("[APIClient][DEBUG] Response: status=\(http.statusCode) bytes=\(data.count) durationMs=\(Int(elapsed*1000)) url=\(url.absoluteString)")
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
