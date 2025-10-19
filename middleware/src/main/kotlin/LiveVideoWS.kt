@@ -219,7 +219,7 @@ fun Route.liveVideoRoutes() {
         if (videoUrl.isNullOrBlank() || isLiveParam.isNullOrBlank()) {
             val url = videoUrl ?: ""
             val errJson = """{"type":"error","message":"Missing required parameters","metadata":{"src_video_url":"$url"}}"""
-            log.warn("[LiveVideoWS] reject connection: missing params videoUrl='${'$'}url' isLiveParam='${'$'}isLiveParam'")
+            log.warn("[LiveVideoWS] reject connection: missing params videoUrl='$url' isLiveParam='$isLiveParam'")
             send(Frame.Text(errJson))
             close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "missing params"))
             return@webSocket
@@ -243,7 +243,7 @@ fun Route.liveVideoRoutes() {
                         log.debug("[LiveVideoWS] sent=$sent total=$totalSent videoUrl=$videoUrl")
                     }
                 } catch (t: Throwable) {
-                    log.debug("[LiveVideoWS] send failed: ${'$'}{t.message}")
+                    log.debug("[LiveVideoWS] send failed: ${t.message}")
                 }
             }
         }

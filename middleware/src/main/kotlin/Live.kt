@@ -6,6 +6,8 @@ import kotlinx.serialization.Serializable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import gg.growly.connectToMongoDB
+import gg.growly.LiveVideoService
 
 /**
  * Lightweight in-memory live system for comments and viewers per clip.
@@ -122,50 +124,51 @@ fun Route.liveRoutes() {
         val log = call.application.log
         val started = System.currentTimeMillis()
         log.info("[LiveAPI] GET /live-videos start")
-        val defaultId = "8Gx4dpC2smo"
-        val defaultItem = LiveListItemDTO(
-            id = defaultId,
-            live = LiveVideoDTO(
-                title = "Liverpool vs Manchester United - Live Stream",
-                description = "Default live stream",
-                streamUrl = "https://www.youtube.com/watch?v=$defaultId",
-                isLive = true,
-                liveChatId = null,
-                createdAt = System.currentTimeMillis()
-            )
-        )
-        val apiKey = gg.growly.services.Env.get("YOUTUBE_API_KEY")
-        val yt = gg.growly.services.YouTubeKtorService(apiKey ?: "")
+
+        // Read from the live_videos collection populated by the background runner
         try {
-            val resp = yt.searchLiveSports("sports live", 20)
-            val items = resp.items.map { item ->
-                val vid = item.id.videoId
-                val title = item.snippet.title
-                val desc = item.snippet.description
-                val url = "https://www.youtube.com/watch?v=$vid"
+            val app = call.application
+            val liveService = LiveVideoService(app.connectToMongoDB())
+            val lives = liveService.listAll().map { (id, live) ->
                 LiveListItemDTO(
-                    id = vid,
+                    id = id,
                     live = LiveVideoDTO(
-                        title = title,
-                        description = desc,
-                        streamUrl = url,
-                        isLive = true,
-                        liveChatId = null,
-                        createdAt = System.currentTimeMillis()
+                        title = live.title,
+                        description = live.description,
+                        streamUrl = live.streamUrl,
+                        isLive = live.isLive,
+                        liveChatId = live.liveChatId,
+                        createdAt = (live.updatedAt ?: System.currentTimeMillis() / 1000) * 1000 // ms for client
                     )
                 )
             }
+
+            val items = if (lives.isNotEmpty()) lives else run {
+                // Provide a minimal default only if DB is empty
+                val defaultId = "8Gx4dpC2smo"
+                listOf(
+                    LiveListItemDTO(
+                        id = defaultId,
+                        live = LiveVideoDTO(
+                            title = "Liverpool vs Manchester United - Live Stream",
+                            description = "Default live stream",
+                            streamUrl = "https://www.youtube.com/watch?v=$defaultId",
+                            isLive = true,
+                            liveChatId = null,
+                            createdAt = System.currentTimeMillis()
+                        )
+                    )
+                )
+            }
+
             val dt = System.currentTimeMillis() - started
-            log.info("[LiveAPI] GET /live-videos success count=${'$'}{items.size} durationMs=${'$'}dt")
-            // Always include default at the front
-            call.respond(listOf(defaultItem) + items)
+            log.info("[LiveAPI] GET /live-videos success count=${items.size} durationMs=$dt")
+            call.respond(items)
         } catch (t: Throwable) {
             val dt = System.currentTimeMillis() - started
-            log.warn("[LiveAPI] GET /live-videos error: ${'$'}{t.message} durationMs=${'$'}dt", t)
-            // On failure, still return the default item
-            call.respond(listOf(defaultItem))
-        } finally {
-            yt.close()
+            log.warn("[LiveAPI] GET /live-videos error: ${t.message} durationMs=$dt", t)
+            // On failure, return empty list to avoid misleading results
+            call.respond(emptyList<LiveListItemDTO>())
         }
     }
 

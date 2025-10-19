@@ -91,8 +91,12 @@ struct LiveVideoPlayerView: View {
             liveBufferMap.removeAll()
             connectLive()
         } else {
-            player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
-            playerManager.playVideo(for: video.videoURL, videoId: video.id)
+            // Use async variant to fetch presigned URL when video.videoURL is empty
+            Task {
+                let p = await playerManager.getPlayer(for: video)
+                await MainActor.run { self.player = p }
+                await playerManager.playVideo(for: video)
+            }
         }
     }
 
