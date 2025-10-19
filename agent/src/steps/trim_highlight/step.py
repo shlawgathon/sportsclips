@@ -187,12 +187,12 @@ class HighlightTrimmer:
             ):
                 args = response.get("args", {})
                 start_chunk = int(args.get("start_segment", 1))
-                end_chunk = int(args.get("end_segment", 7))
+                end_chunk = int(args.get("end_segment", 9))
                 reasoning = args.get("reasoning", "")
 
                 # Validate and fix range if needed
-                start_chunk = max(1, min(start_chunk, 7))
-                end_chunk = max(1, min(end_chunk, 7))
+                start_chunk = max(1, min(start_chunk, 9))
+                end_chunk = max(1, min(end_chunk, 9))
 
                 if start_chunk > end_chunk:
                     start_chunk, end_chunk = end_chunk, start_chunk
@@ -266,7 +266,7 @@ async def trim_highlight_step(
     concatenates only those chunks.
 
     Args:
-        window_chunks: List of 7 video chunks (2 seconds each)
+        window_chunks: List of 9 video chunks (4 seconds each)
         metadata: Window metadata
 
     Returns:

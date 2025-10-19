@@ -25,17 +25,17 @@ class SlidingWindowPipeline:
     Pipeline for processing video with sliding window approach.
 
     This pipeline:
-    1. Splits video into 2-second base chunks
-    2. Creates 7-chunk sliding windows (14 seconds total)
+    1. Splits video into 4-second base chunks
+    2. Creates 9-chunk sliding windows (36 seconds total)
     3. Processes each window through multiple steps
-    4. Slides by 2 chunks if no highlight found, or by 7 chunks if highlight submitted
+    4. Slides by 3 chunks if no highlight found, or by 9 chunks if highlight submitted
     """
 
     def __init__(
         self,
-        base_chunk_duration: int = 2,
-        window_size: int = 7,
-        slide_step: int = 2,
+        base_chunk_duration: int = 4,
+        window_size: int = 9,
+        slide_step: int = 3,
         format_selector: str = "best[ext=mp4]/best",
         debug_dir: Path | None = None,
     ):
@@ -43,9 +43,9 @@ class SlidingWindowPipeline:
         Initialize the sliding window pipeline.
 
         Args:
-            base_chunk_duration: Duration of each base chunk in seconds (default: 2)
-            window_size: Number of chunks in each window (default: 7, which is 14 seconds)
-            slide_step: Number of chunks to slide when no highlight found (default: 2)
+            base_chunk_duration: Duration of each base chunk in seconds (default: 4)
+            window_size: Number of chunks in each window (default: 9, which is 36 seconds)
+            slide_step: Number of chunks to slide when no highlight found (default: 3)
             format_selector: yt-dlp format selector for video quality
             debug_dir: Directory to save intermediate debug videos (default: None)
         """
@@ -463,24 +463,24 @@ class SlidingWindowPipeline:
 
 
 def create_highlight_pipeline(
-    base_chunk_duration: int = 2,
-    window_size: int = 7,
-    slide_step: int = 2,
+    base_chunk_duration: int = 4,
+    window_size: int = 9,
+    slide_step: int = 3,
     debug_dir: Path | None = None,
 ) -> SlidingWindowPipeline:
     """
     Create a sliding window pipeline configured for highlight detection.
 
     This pipeline:
-    - Processes videos in 2-second base chunks (configurable)
-    - Uses 7-chunk sliding windows (14 seconds total)
+    - Processes videos in 4-second base chunks (configurable)
+    - Uses 9-chunk sliding windows (36 seconds total)
     - Applies 3-step processing: detect, trim, caption
-    - Slides by 2 chunks when no highlight, or by full window when highlight found
+    - Slides by 3 chunks when no highlight, or by full window when highlight found
 
     Args:
-        base_chunk_duration: Duration of each base chunk in seconds (default: 2)
-        window_size: Number of chunks per window (default: 7)
-        slide_step: Chunks to slide when no highlight (default: 2)
+        base_chunk_duration: Duration of each base chunk in seconds (default: 4)
+        window_size: Number of chunks per window (default: 9)
+        slide_step: Chunks to slide when no highlight (default: 3)
         debug_dir: Directory to save intermediate debug videos (default: None)
 
     Returns:

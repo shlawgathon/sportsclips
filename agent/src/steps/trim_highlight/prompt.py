@@ -4,16 +4,18 @@ Prompts and tool schemas for highlight trimming.
 
 from google.genai import types
 
-TRIM_HIGHLIGHT_PROMPT_TEMPLATE = """I'm showing you 7 separate video segments (Chunk 1 through Chunk 7) in order, each exactly 2 seconds long (total 14 seconds of footage).
+TRIM_HIGHLIGHT_PROMPT_TEMPLATE = """I'm showing you 9 separate video segments (Chunk 1 through Chunk 9) in order, each exactly 4 seconds long (total 36 seconds of footage).
 
 Each video you see corresponds to one chunk:
-- Chunk 1: 0-2s (first video)
-- Chunk 2: 2-4s (second video)
-- Chunk 3: 4-6s (third video)
-- Chunk 4: 6-8s (fourth video)
-- Chunk 5: 8-10s (fifth video)
-- Chunk 6: 10-12s (sixth video)
-- Chunk 7: 12-14s (seventh video)
+- Chunk 1: 0-4s (first video)
+- Chunk 2: 4-8s (second video)
+- Chunk 3: 8-12s (third video)
+- Chunk 4: 12-16s (fourth video)
+- Chunk 5: 16-20s (fifth video)
+- Chunk 6: 20-24s (sixth video)
+- Chunk 7: 24-28s (seventh video)
+- Chunk 8: 28-32s (eighth video)
+- Chunk 9: 32-36s (ninth video)
 
 {detection_context}
 
@@ -39,11 +41,11 @@ TRIM_HIGHLIGHT_TOOL = types.Tool(
                 properties={
                     "start_segment": types.Schema(
                         type=types.Type.INTEGER,
-                        description="Starting segment number (1-7, inclusive)",
+                        description="Starting segment number (1-9, inclusive)",
                     ),
                     "end_segment": types.Schema(
                         type=types.Type.INTEGER,
-                        description="Ending segment number (1-7, inclusive)",
+                        description="Ending segment number (1-9, inclusive)",
                     ),
                     "reasoning": types.Schema(
                         type=types.Type.STRING,

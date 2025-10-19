@@ -149,22 +149,22 @@ Examples:
     parser.add_argument(
         "--base-chunk",
         type=int,
-        default=2,
-        help="Duration of each base chunk in seconds (default: 2)",
+        default=4,
+        help="Duration of each base chunk in seconds (default: 4)",
     )
 
     parser.add_argument(
         "--window-size",
         type=int,
-        default=7,
-        help="Number of chunks in sliding window (default: 7)",
+        default=9,
+        help="Number of chunks in sliding window (default: 9)",
     )
 
     parser.add_argument(
         "--slide-step",
         type=int,
-        default=2,
-        help="Number of chunks to slide when no highlight (default: 2)",
+        default=3,
+        help="Number of chunks to slide when no highlight (default: 3)",
     )
 
     parser.add_argument(

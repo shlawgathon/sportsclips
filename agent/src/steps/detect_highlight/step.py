@@ -203,7 +203,7 @@ async def detect_highlight_step(
     concatenating the chunks and analyzing with the Gemini LLM.
 
     Args:
-        window_chunks: List of video chunks (typically 7 chunks of 2 seconds each)
+        window_chunks: List of video chunks (typically 9 chunks of 4 seconds each)
         metadata: Window metadata
 
     Returns:

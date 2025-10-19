@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="SportsClips Agent (ASGI)")
 
 # Initialize a pipeline instance for direct programmatic calls and tests
-pipeline = create_highlight_pipeline(base_chunk_duration=2, window_size=7, slide_step=2)
+pipeline = create_highlight_pipeline(base_chunk_duration=4, window_size=9, slide_step=3)
 
 
 def create_snippet_message(
@@ -102,7 +102,7 @@ def _pipeline_worker(video_url: str, is_live: bool, q: mp.Queue[str]) -> None:
     """Worker process entrypoint to run the async pipeline."""
     try:
         child_pipeline = create_highlight_pipeline(
-            base_chunk_duration=2, window_size=7, slide_step=2
+            base_chunk_duration=4, window_size=9, slide_step=3
         )
         ws = QueueWebSocket(q)
 
