@@ -25,8 +25,8 @@ struct AuthenticationView: View {
                 VStack(spacing: 30) {
                     Spacer()
                     
-                    // Animated sports emoji logo
-                    AnimatedSportsLogo()
+                    // Baseball logo
+                    ScrollableSportsLogo()
                     
                     Text("Sports Clips")
                         .font(.system(size: 36, weight: .bold))

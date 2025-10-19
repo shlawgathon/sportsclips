@@ -32,8 +32,7 @@ struct LoginView: View {
                 Spacer()
                 
                     // Logo
-                    AnimatedSportsLogo()
-                        .scaleEffect(0.75)
+                    ScrollableSportsLogo()
                 
                 Text("Welcome Back")
                     .font(.system(size: 28, weight: .bold))
