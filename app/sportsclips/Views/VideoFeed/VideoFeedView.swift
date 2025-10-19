@@ -36,6 +36,7 @@ struct VideoFeedView: View {
     @State private var doubleTapInProgress: [String: Bool] = [:] // Track if double tap is in progress
     @State private var controlShowTimes: [String: Date] = [:] // Track when controls were shown for each video
     @State private var gameNameCache: [String: String] = [:] // Cache gameId -> gameName to avoid refetching
+    @State private var tapDetectionEnabled: [String: Bool] = [:] // Track when tap detection is enabled for each video
 
     var body: some View {
         ZStack {
@@ -200,12 +201,14 @@ struct VideoFeedView: View {
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 1.0, maximumDistance: 10)
                     .onEnded { _ in
+                        guard tapDetectionEnabled[video.id] == true else { return }
                         handleLongPress(for: video)
                     }
             )
             .simultaneousGesture(
                 TapGesture(count: 1)
                     .onEnded { _ in
+                        guard tapDetectionEnabled[video.id] == true else { return }
                         if !(doubleTapInProgress[video.id] ?? false) {
                             handleSingleTap(for: video)
                         }
@@ -214,6 +217,7 @@ struct VideoFeedView: View {
             .simultaneousGesture(
                 TapGesture(count: 2)
                     .onEnded { _ in
+                        guard tapDetectionEnabled[video.id] == true else { return }
                         handleDoubleTap(for: video, geometry: geometry)
                     }
             )
@@ -318,7 +322,14 @@ struct VideoFeedView: View {
         currentVideoIndex = index
 
         print("🎬 Video appeared: \(video.id) at index \(index)")
+        
+        // Disable tap detection during scroll transition
+        tapDetectionEnabled[video.id] = false
+        
+        // Always resume playback when video appears (handles scrolling back to paused videos)
+        // The VideoPlayerManager will handle duplicate play attempts efficiently
         playerManager.playVideo(for: video.videoURL, videoId: video.id)
+        
         // Preload next 5 videos to disk
         playerManager.updatePreloadQueue(currentIndex: index, clips: filteredVideos, count: 5)
         localStorage.recordView(videoId: video.id)
@@ -339,6 +350,11 @@ struct VideoFeedView: View {
             videoLikeStates[video.id] = interaction.liked
             print("🔄 VideoFeedView: Loaded like state \(interaction.liked) for video \(video.id)")
         }
+        
+        // Enable tap detection after a delay to prevent accidental taps during scroll
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            self.tapDetectionEnabled[video.id] = true
+        }
     }
 
     private func handleVideoDisappear(video: VideoClip) {
@@ -349,6 +365,7 @@ struct VideoFeedView: View {
         controlsVisible[video.id] = false
         controlShowTimes.removeValue(forKey: video.id)
         heartAnimations[video.id] = nil
+        tapDetectionEnabled[video.id] = false
     }
 
     private func handleIndexChange(_ newIndex: Int) {
@@ -470,6 +487,7 @@ struct VideoFeedView: View {
         controlsVisible.removeAll()
         controlShowTimes.removeAll()
         heartAnimations.removeAll()
+        tapDetectionEnabled.removeAll()
 
         print("🎬 VideoFeedView disappeared - cleaned up resources")
     }
@@ -492,10 +510,15 @@ struct VideoFeedView: View {
                     self.videos = page.videos
                     self.filterVideos()
                     self.isLoading = false
-
+                    
+                    // Trigger initial playback after a small delay to ensure view is ready
+                    // This is a fallback - handleVideoAppear will also trigger playback
                     if !filteredVideos.isEmpty {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            autoPlayFirstVideo()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            // Only play if not already playing
+                            if !self.playerManager.isPlaying(for: self.filteredVideos[0].videoURL, videoId: self.filteredVideos[0].id) {
+                                self.autoPlayFirstVideo()
+                            }
                         }
                     }
 
@@ -559,12 +582,8 @@ struct VideoFeedView: View {
 
         print("🎬 Filtered videos count: \(filteredVideos.count)")
         currentIndex = 0
-
-        if !filteredVideos.isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                autoPlayFirstVideo()
-            }
-        }
+        
+        // Don't auto-play here - let handleVideoAppear handle it via view lifecycle
     }
 
     // MARK: - Interaction Handlers

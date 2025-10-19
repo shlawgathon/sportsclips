@@ -112,25 +112,41 @@ class VideoPlayerManager: ObservableObject {
 
         let player = getPlayer(for: videoURL, videoId: videoId)
         currentActiveVideoId = videoId
+        
+        // Check if player already has an item - if so, just play it
+        if player.currentItem != nil && player.currentItem?.status == .readyToPlay {
+            print("🎬 Player already has item ready - playing immediately")
+            player.play()
+            startBackgroundTask()
+            return
+        }
+        
         print("🎬 VideoPlayerManager preparing disk playback for: \(videoId)")
 
         // Replace item with local cached file, then play
         Task { [weak self] in
             guard let self else { return }
             if let item = await self.prepareLocalItem(videoURL: videoURL, videoId: videoId) {
-                player.replaceCurrentItem(with: item)
-                print("🎬 VideoPlayerManager playing from disk: \(videoId)")
-                player.play()
-                // Start background task to keep video playing
-                self.startBackgroundTask()
+                await MainActor.run {
+                    // Only replace if this is still the active video
+                    guard self.currentActiveVideoId == videoId else { return }
+                    player.replaceCurrentItem(with: item)
+                    print("🎬 VideoPlayerManager playing from disk: \(videoId)")
+                    player.play()
+                    // Start background task to keep video playing
+                    self.startBackgroundTask()
+                }
             } else {
                 // Fallback: attempt to play remote to avoid a blank UI
-                print("🎬 Fallback to remote stream for: \(videoId)")
-                if let url = URL(string: videoURL) {
-                    let remoteItem = AVPlayerItem(url: url)
-                    player.replaceCurrentItem(with: remoteItem)
-                    player.play()
-                    self.startBackgroundTask()
+                await MainActor.run {
+                    guard self.currentActiveVideoId == videoId else { return }
+                    print("🎬 Fallback to remote stream for: \(videoId)")
+                    if let url = URL(string: videoURL) {
+                        let remoteItem = AVPlayerItem(url: url)
+                        player.replaceCurrentItem(with: remoteItem)
+                        player.play()
+                        self.startBackgroundTask()
+                    }
                 }
             }
         }
@@ -184,9 +200,20 @@ class VideoPlayerManager: ObservableObject {
             print("🎬 Seek failed: No player found for \(videoId)")
             return
         }
+        
+        guard let item = player.currentItem, item.status == .readyToPlay else {
+            print("🎬 Seek failed: Player item not ready for \(videoId)")
+            return
+        }
+        
         let cmTime = CMTimeMakeWithSeconds(time, preferredTimescale: 600)
         print("🎬 VideoPlayerManager seeking to: \(time) seconds for video: \(videoId)")
-        player.seek(to: cmTime)
+        
+        player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+            if finished {
+                print("🎬 Seek completed for \(videoId)")
+            }
+        }
     }
 
     func getCurrentTime(for videoURL: String, videoId: String) -> Double {
