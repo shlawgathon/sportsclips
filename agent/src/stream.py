@@ -338,7 +338,7 @@ def stream_and_chunk_live(
 def stream_video_chunks(
     url: str,
     chunk_size: int = 1024 * 1024,  # 1MB chunks by default
-    format_selector: str = "best",
+    format_selector: str = "bestvideo+bestaudio/best",
     additional_options: list[str] | None = None,
     live_from_start: bool = False,
 ) -> Generator[bytes, None, None]:
@@ -481,9 +481,7 @@ def stream_and_chunk_video(
     For live streams with --live-from-start:
     - Downloads from the beginning of the live stream (not just current point)
     - Downloads all existing stream data as fast as possible, then continues in real-time
-    - LIMITATION: Chunks will contain VIDEO ONLY (no audio) because yt-dlp outputs
-      video and audio sequentially when piping to stdout. Audio stream comes after
-      video completes.
+    - Includes both video and audio in the output chunks
 
     Args:
         url: The video URL
@@ -494,7 +492,7 @@ def stream_and_chunk_video(
         is_live: Whether the video is a live stream (default: False)
 
     Yields:
-        bytes: Video chunk data (MP4 files with video only for live streams)
+        bytes: Video chunk data (MP4 files with video and audio)
     """
     # If live, delegate to live handler (easier to mock in tests and clearer separation)
     if is_live:
@@ -523,7 +521,7 @@ def stream_and_chunk_video(
                 for data in stream_video_chunks(
                     url,
                     chunk_size=1024 * 1024,
-                    format_selector=(format_selector or "best[ext=mp4]/best"),
+                    format_selector=(format_selector or "bestvideo+bestaudio/best"),
                     additional_options=additional_options,
                     live_from_start=False,
                 ):

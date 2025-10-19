@@ -1024,8 +1024,11 @@ class TestLiveStreamAudioDebug:
         except Exception as e:
             pytest.skip(f"Could not check stream status: {e}")
 
-        # Save to home directory for playback testing
-        test_output = ".." / "video_output" / "live_stream_debug.mp4"
+        # Save to video_output directory in repo for manual testing
+        output_dir = Path(__file__).parent.parent / "video_output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        test_output = output_dir / "live_stream_debug.mp4"
 
         try:
             print(
