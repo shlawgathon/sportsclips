@@ -269,7 +269,9 @@ class GeminiAgent:
     a hook system that allows customization of input processing and output formatting.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-pro"):
+    def __init__(
+        self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"
+    ):
         """
         Initialize the Gemini agent.
 
@@ -734,7 +736,7 @@ class GeminiLiveClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-2.0-flash-exp",
+        model_name: str = "gemini-live-2.5-flash-preview",
         system_instruction: Optional[str] = None,
     ):
         """
@@ -742,7 +744,7 @@ class GeminiLiveClient:
 
         Args:
             api_key: Google API key for Gemini (optional, can use env var)
-            model_name: Name of the Gemini model to use
+            model_name: Name of the Gemini model to use (must support Live API/bidiGenerateContent)
             system_instruction: Optional system instruction for the model behavior
         """
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -859,6 +861,7 @@ class GeminiLiveClient:
             ValueError: If session is not connected
         """
         import logging
+
         logger = logging.getLogger(__name__)
 
         if not self._session:
@@ -871,11 +874,15 @@ class GeminiLiveClient:
         response_count = 0
         async for response in turn:
             response_count += 1
-            logger.info(f"[GeminiLiveClient] Received response #{response_count}, type: {type(response).__name__}")
+            logger.info(
+                f"[GeminiLiveClient] Received response #{response_count}, type: {type(response).__name__}"
+            )
 
             # Extract audio data from response
             if hasattr(response, "data") and response.data is not None:
-                logger.info(f"[GeminiLiveClient] Found audio data (size: {len(response.data)} bytes)")
+                logger.info(
+                    f"[GeminiLiveClient] Found audio data (size: {len(response.data)} bytes)"
+                )
                 yield response.data
             elif hasattr(response, "server_content"):
                 logger.info("[GeminiLiveClient] Response has server_content")
@@ -884,15 +891,23 @@ class GeminiLiveClient:
                     logger.info("[GeminiLiveClient] server_content has model_turn")
                     model_turn = server_content.model_turn
                     if hasattr(model_turn, "parts"):
-                        logger.info(f"[GeminiLiveClient] model_turn has {len(model_turn.parts)} parts")
+                        logger.info(
+                            f"[GeminiLiveClient] model_turn has {len(model_turn.parts)} parts"
+                        )
                         for part in model_turn.parts:
                             if hasattr(part, "inline_data") and part.inline_data:
-                                logger.info(f"[GeminiLiveClient] Found inline_data (size: {len(part.inline_data.data)} bytes)")
+                                logger.info(
+                                    f"[GeminiLiveClient] Found inline_data (size: {len(part.inline_data.data)} bytes)"
+                                )
                                 yield part.inline_data.data
             else:
-                logger.info(f"[GeminiLiveClient] Response has no audio data. Attributes: {dir(response)}")
+                logger.info(
+                    f"[GeminiLiveClient] Response has no audio data. Attributes: {dir(response)}"
+                )
 
-        logger.info(f"[GeminiLiveClient] receive_audio_chunks() completed after {response_count} responses")
+        logger.info(
+            f"[GeminiLiveClient] receive_audio_chunks() completed after {response_count} responses"
+        )
 
     async def send_audio_chunk(
         self, audio_data: bytes, sample_rate: int = 16000
