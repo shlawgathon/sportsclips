@@ -5,7 +5,6 @@ This module provides a pipeline step that uses the Gemini agent to identify
 which portions of a video window contain the actual highlight action.
 """
 
-import asyncio
 import logging
 import os
 import subprocess
@@ -96,30 +95,6 @@ def _concatenate_chunks(chunks: list[bytes]) -> bytes:
             shutil.rmtree(temp_dir)
         except Exception:
             pass
-
-
-def _run_async(coro: Any) -> Any:
-    """
-    Run async function in sync context.
-
-    Args:
-        coro: Coroutine to run
-
-    Returns:
-        Result from coroutine
-    """
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        # If we're already in an async context, create a new event loop
-        # This is a workaround for running async code from sync pipeline
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        # Run in the current event loop
-        return loop.run_until_complete(coro)
 
 
 class HighlightTrimmer:
@@ -244,7 +219,7 @@ def _get_trimmer() -> HighlightTrimmer:
     return _trimmer
 
 
-def trim_highlight_step(
+async def trim_highlight_step(
     window_chunks: list[bytes], metadata: dict[str, Any]
 ) -> tuple[bytes, dict[str, Any]]:
     """
@@ -263,7 +238,7 @@ def trim_highlight_step(
     logger.info("Running trim_highlight_step with Gemini LLM")
 
     trimmer = _get_trimmer()
-    result: tuple[bytes, dict[str, Any]] = _run_async(
-        trimmer.trim_highlight(window_chunks, metadata)
+    result: tuple[bytes, dict[str, Any]] = await trimmer.trim_highlight(
+        window_chunks, metadata
     )
     return result

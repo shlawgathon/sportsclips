@@ -5,7 +5,6 @@ This module provides a pipeline step that uses the Gemini agent to generate
 engaging titles and descriptions for highlight videos.
 """
 
-import asyncio
 import logging
 import os
 import tempfile
@@ -15,30 +14,6 @@ from ...llm import GeminiAgent
 from .prompt import CAPTION_HIGHLIGHT_PROMPT, CAPTION_HIGHLIGHT_TOOL
 
 logger = logging.getLogger(__name__)
-
-
-def _run_async(coro: Any) -> Any:
-    """
-    Run async function in sync context.
-
-    Args:
-        coro: Coroutine to run
-
-    Returns:
-        Result from coroutine
-    """
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        # If we're already in an async context, create a new event loop
-        # This is a workaround for running async code from sync pipeline
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        # Run in the current event loop
-        return loop.run_until_complete(coro)
 
 
 class HighlightCaptioner:
@@ -168,7 +143,7 @@ def _get_captioner() -> HighlightCaptioner:
     return _captioner
 
 
-def caption_highlight_step(
+async def caption_highlight_step(
     video_data: bytes, metadata: dict[str, Any]
 ) -> tuple[str, str, dict[str, Any]]:
     """
@@ -187,7 +162,7 @@ def caption_highlight_step(
     logger.info("Running caption_highlight_step with Gemini LLM")
 
     captioner = _get_captioner()
-    result: tuple[str, str, dict[str, Any]] = _run_async(
-        captioner.generate_caption(video_data, metadata)
+    result: tuple[str, str, dict[str, Any]] = await captioner.generate_caption(
+        video_data, metadata
     )
     return result

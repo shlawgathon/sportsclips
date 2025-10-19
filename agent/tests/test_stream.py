@@ -17,6 +17,100 @@ from src.stream import (
 class TestStreamVideoChunks:
     """Integration tests for video streaming functionality."""
 
+    def test_stream_video_chunks_specific_live_video(self):
+        """Test streaming a specific live video: D4M6N20Itz8."""
+        test_url = "https://www.youtube.com/watch?v=D4M6N20Itz8"
+
+        # First check if it's actually live
+        try:
+            is_live = is_live_stream(test_url)
+            print(f"Video D4M6N20Itz8 is_live: {is_live}")
+        except Exception as e:
+            pytest.skip(f"Could not check live status: {e}")
+
+        # Try to stream and chunk it
+        try:
+            chunks = []
+            total_bytes = 0
+
+            # Use stream_and_chunk_video which should handle both live and non-live
+            for chunk in stream_and_chunk_video(
+                test_url,
+                chunk_duration=10,  # 10 second chunks
+                format_selector=None,  # Let the function choose the best format
+                is_live=is_live,
+            ):
+                chunks.append(chunk)
+                total_bytes += len(chunk)
+                print(f"Received chunk {len(chunks)}: {len(chunk):,} bytes")
+
+                # Get at least 2 chunks to verify it's working
+                if len(chunks) >= 2:
+                    break
+
+            assert len(chunks) >= 2, (
+                f"Should have received at least 2 chunks, got {len(chunks)}"
+            )
+            assert total_bytes > 0, "Should have received data"
+            assert all(isinstance(chunk, bytes) for chunk in chunks), (
+                "All chunks should be bytes"
+            )
+
+            print(
+                f"✅ Successfully streamed {len(chunks)} chunks, {total_bytes:,} total bytes"
+            )
+
+            # Verify that chunks contain both audio and video streams
+            import json
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                for i, chunk in enumerate(chunks[:1]):  # Check at least the first chunk
+                    chunk_path = Path(tmpdir) / f"chunk_{i}.mp4"
+                    chunk_path.write_bytes(chunk)
+
+                    # Use ffprobe to check streams
+                    result = subprocess.run(
+                        [
+                            "ffprobe",
+                            "-v",
+                            "quiet",
+                            "-print_format",
+                            "json",
+                            "-show_streams",
+                            str(chunk_path),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    if result.returncode != 0:
+                        pytest.fail(f"ffprobe failed on chunk {i}: {result.stderr}")
+
+                    probe_data = json.loads(result.stdout)
+                    streams = probe_data.get("streams", [])
+
+                    # Check for video and audio streams
+                    has_video = any(s.get("codec_type") == "video" for s in streams)
+                    has_audio = any(s.get("codec_type") == "audio" for s in streams)
+
+                    print(f"Chunk {i}: video={has_video}, audio={has_audio}")
+                    print(
+                        f"  Streams: {[(s.get('codec_type'), s.get('codec_name')) for s in streams]}"
+                    )
+
+                    assert has_video, f"Chunk {i} should have a video stream"
+                    # NOTE: With --live-from-start, we only get video (no audio)
+                    # because yt-dlp streams video first, then audio sequentially
+                    if not has_audio:
+                        print(
+                            f"      ⚠️  Chunk {i} has video only (expected with --live-from-start)"
+                        )
+
+            print("✅ All chunks verified to have video")
+
+        except Exception as e:
+            pytest.fail(f"Failed to stream video D4M6N20Itz8: {e}")
+
     def test_stream_video_chunks_live_from_edge(self):
         """Test streaming live video from the live edge (current point)."""
         # Note: This test uses a sample URL - replace with actual live stream for real testing

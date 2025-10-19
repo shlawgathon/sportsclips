@@ -5,6 +5,7 @@ This module provides functionality to download video streams, split them into
 fixed-duration chunks, and process them with a sliding window for highlight detection.
 """
 
+import asyncio
 import logging
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 from typing import Any, Callable
+import inspect
 
 from .stream import stream_and_chunk_video
 
@@ -52,17 +54,17 @@ class SlidingWindowPipeline:
 
         # Three processing steps
         self.detect_step: (
-            Callable[[list[bytes], dict[str, Any]], tuple[bool, dict[str, Any]]] | None
+            Callable[[list[bytes], dict[str, Any]], Any] | None
         ) = None
         self.trim_step: (
-            Callable[[list[bytes], dict[str, Any]], tuple[bytes, dict[str, Any]]] | None
+            Callable[[list[bytes], dict[str, Any]], Any] | None
         ) = None
         self.caption_step: (
-            Callable[[bytes, dict[str, Any]], tuple[str, str, dict[str, Any]]] | None
+            Callable[[bytes, dict[str, Any]], Any] | None
         ) = None
 
     def set_detect_step(
-        self, func: Callable[[list[bytes], dict[str, Any]], tuple[bool, dict[str, Any]]]
+        self, func: Callable[[list[bytes], dict[str, Any]], Any]
     ) -> None:
         """
         Set the detection step function.
@@ -74,7 +76,7 @@ class SlidingWindowPipeline:
 
     def set_trim_step(
         self,
-        func: Callable[[list[bytes], dict[str, Any]], tuple[bytes, dict[str, Any]]],
+        func: Callable[[list[bytes], dict[str, Any]], Any],
     ) -> None:
         """
         Set the trim step function.
@@ -85,7 +87,7 @@ class SlidingWindowPipeline:
         self.trim_step = func
 
     def set_caption_step(
-        self, func: Callable[[bytes, dict[str, Any]], tuple[str, str, dict[str, Any]]]
+        self, func: Callable[[bytes, dict[str, Any]], Any]
     ) -> None:
         """
         Set the caption step function.
@@ -172,7 +174,7 @@ class SlidingWindowPipeline:
             except Exception:
                 pass
 
-    def process_video_url(
+    async def process_video_url(
         self,
         video_url: str,
         ws: Any,
@@ -222,14 +224,20 @@ class SlidingWindowPipeline:
             # This prevents processing the same window multiple times
             last_processed_position = -1
 
-            # Stream and process chunks in real-time
-            for chunk_data in stream_and_chunk_video(
+            # Stream and process chunks in real-time (from sync generator in a thread)
+            iterator = stream_and_chunk_video(
                 url=video_url,
                 chunk_duration=self.base_chunk_duration,
                 format_selector=self.format_selector,
                 additional_options=["--no-part"],
                 is_live=is_live,
-            ):
+            )
+
+            while True:
+                try:
+                    chunk_data = await asyncio.to_thread(next, iterator)
+                except StopIteration:
+                    break
                 # Add chunk to cache
                 chunk_cache.append(chunk_data)
                 total_chunks_received += 1
@@ -293,7 +301,11 @@ class SlidingWindowPipeline:
                 # Step 1: Detect if this window contains a highlight
                 is_highlight = False
                 if self.detect_step:
-                    is_highlight, metadata = self.detect_step(window_chunks, metadata)
+                    detect_result = self.detect_step(window_chunks, metadata)
+                    if inspect.isawaitable(detect_result):
+                        is_highlight, metadata = await detect_result
+                    else:
+                        is_highlight, metadata = detect_result
                     logger.info(
                         f"Detection result: {'HIGHLIGHT' if is_highlight else 'NO HIGHLIGHT'}"
                     )
@@ -304,16 +316,20 @@ class SlidingWindowPipeline:
                     # Step 2: Trim to actual highlight portions
                     trimmed_video = b""
                     if self.trim_step:
-                        trimmed_video, metadata = self.trim_step(
-                            window_chunks, metadata
-                        )
+                        trim_result = self.trim_step(window_chunks, metadata)
+                        if inspect.isawaitable(trim_result):
+                            trimmed_video, metadata = await trim_result
+                        else:
+                            trimmed_video, metadata = trim_result
                         logger.info(f"Trimmed video size: {len(trimmed_video)} bytes")
                     else:
                         # Default: concatenate all chunks in window
                         logger.warning(
                             "No trim_step configured, concatenating all chunks"
                         )
-                        trimmed_video = self._concatenate_chunks(window_chunks)
+                        trimmed_video = await asyncio.to_thread(
+                            self._concatenate_chunks, window_chunks
+                        )
 
                     # Step 3: Generate caption and description
                     title = f"Highlight {highlight_count + 1}"
@@ -323,9 +339,11 @@ class SlidingWindowPipeline:
                     )
 
                     if self.caption_step:
-                        title, description, metadata = self.caption_step(
-                            trimmed_video, metadata
-                        )
+                        caption_result = self.caption_step(trimmed_video, metadata)
+                        if inspect.isawaitable(caption_result):
+                            title, description, metadata = await caption_result
+                        else:
+                            title, description, metadata = caption_result
                         logger.info(f"Generated caption: {title}")
                     else:
                         logger.warning(
@@ -339,7 +357,7 @@ class SlidingWindowPipeline:
                         title,
                         description,
                     )
-                    ws.send(snippet_msg)
+                    await asyncio.to_thread(ws.send, snippet_msg)
 
                     highlight_count += 1
                     logger.info(f"Sent highlight {highlight_count} to client")
@@ -357,14 +375,14 @@ class SlidingWindowPipeline:
                     logger.info(f"Sliding by {self.slide_step} chunks (no highlight)")
 
             # Send completion message
-            ws.send(create_complete_message(video_url))
+            await asyncio.to_thread(ws.send, create_complete_message(video_url))
             logger.info(
                 f"Pipeline processing complete. Total highlights: {highlight_count}, Total chunks: {total_chunks_received}"
             )
 
         except Exception as e:
             logger.error(f"Pipeline error: {e}", exc_info=True)
-            ws.send(create_error_message(str(e), video_url))
+            await asyncio.to_thread(ws.send, create_error_message(str(e), video_url))
 
 
 def create_highlight_pipeline(
