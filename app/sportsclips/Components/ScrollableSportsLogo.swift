@@ -50,9 +50,14 @@ struct ScrollableSportsLogo: View {
     @State private var isAutoScrolling = true
     @State private var userIsDragging = false
     @State private var dragStartOffset: CGFloat = 0
+    @State private var scrollTimer: Timer?
+    @State private var momentumVelocity: CGFloat = 0
+    @State private var isMomentumActive = false
     
     let iconWidth: CGFloat = 120 // 100 + 20 spacing
     let autoScrollSpeed: Double = 1.0 // Points per frame (about 30fps) - Faster scroll
+    let momentumDecayRate: CGFloat = 0.95 // How fast momentum slows down (0.95 = 5% slower each frame)
+    let minimumMomentumThreshold: CGFloat = 0.1 // When to stop momentum and resume auto-scroll
     
     var body: some View {
         GeometryReader { outerGeometry in
@@ -89,6 +94,8 @@ struct ScrollableSportsLogo: View {
                                 if !userIsDragging {
                                     userIsDragging = true
                                     isAutoScrolling = false
+                                    isMomentumActive = false
+                                    momentumVelocity = 0
                                     dragStartOffset = scrollOffset
                                 }
                                 
@@ -98,17 +105,18 @@ struct ScrollableSportsLogo: View {
                             .onEnded { value in
                                 userIsDragging = false
                                 
-                                // Resume auto-scroll after 2 seconds of no interaction
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                    if !userIsDragging {
-                                        isAutoScrolling = true
-                                    }
-                                }
-                                
-                                // Add momentum to the scroll
+                                // Calculate velocity from the drag gesture
                                 let velocity = value.predictedEndTranslation.width - value.translation.width
-                                withAnimation(.interpolatingSpring(stiffness: 100, damping: 15)) {
-                                    scrollOffset += velocity * 0.3
+                                momentumVelocity = velocity * 0.05 // Scale down for smoother momentum
+                                
+                                // Start momentum if velocity is significant
+                                if abs(momentumVelocity) > minimumMomentumThreshold {
+                                    isMomentumActive = true
+                                    isAutoScrolling = false
+                                    applyMomentum()
+                                } else {
+                                    // If no significant momentum, resume auto-scroll immediately
+                                    isAutoScrolling = true
                                 }
                                 
                                 // Check if we need to loop
@@ -125,14 +133,22 @@ struct ScrollableSportsLogo: View {
                     // Start auto-scroll
                     startAutoScroll()
                 }
+                .onDisappear {
+                    // CRITICAL: Stop timer when view disappears
+                    stopAutoScroll()
+                }
             }
         }
         .frame(height: 150)
     }
     
     private func startAutoScroll() {
-        Timer.scheduledTimer(withTimeInterval: 1/30, repeats: true) { timer in
-            guard isAutoScrolling else { return }
+        // CRITICAL: Stop any existing timer before creating new one
+        stopAutoScroll()
+        
+        scrollTimer = Timer.scheduledTimer(withTimeInterval: 1/30, repeats: true) { timer in
+            // Only auto-scroll if not dragging and no momentum
+            guard isAutoScrolling && !isMomentumActive else { return }
             
             withAnimation(.linear(duration: 1/30)) {
                 scrollOffset -= autoScrollSpeed
@@ -141,6 +157,40 @@ struct ScrollableSportsLogo: View {
             // Loop the scroll when reaching end
             checkAndLoopScroll()
         }
+    }
+    
+    private func applyMomentum() {
+        // Run momentum physics at 60fps for smooth deceleration
+        Timer.scheduledTimer(withTimeInterval: 1/60, repeats: true) { timer in
+            guard isMomentumActive else {
+                timer.invalidate()
+                return
+            }
+            
+            // Apply momentum to scroll offset
+            scrollOffset += momentumVelocity
+            
+            // Decay the momentum (slow down)
+            momentumVelocity *= momentumDecayRate
+            
+            // Check if momentum has stopped
+            if abs(momentumVelocity) < minimumMomentumThreshold {
+                isMomentumActive = false
+                momentumVelocity = 0
+                timer.invalidate()
+                
+                // Resume auto-scroll after momentum stops
+                isAutoScrolling = true
+            }
+            
+            // Loop the scroll when reaching end
+            checkAndLoopScroll()
+        }
+    }
+    
+    private func stopAutoScroll() {
+        scrollTimer?.invalidate()
+        scrollTimer = nil
     }
     
     private func checkAndLoopScroll() {
