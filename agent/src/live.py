@@ -138,7 +138,8 @@ def stitch_audio_video(
             "0:v:0",  # Video from first input
             "-map",
             "1:a:0",  # Audio from second input
-            "-shortest",  # Match shortest stream duration
+            # Note: Removed -shortest flag to preserve full video duration
+            # even when audio is shorter (audio will be padded with silence)
             str(output_file),
         ]
 
@@ -224,5 +225,3 @@ def create_fragmented_mp4(video_data: bytes) -> bytes:
             shutil.rmtree(temp_dir)
         except Exception:
             pass
-
-

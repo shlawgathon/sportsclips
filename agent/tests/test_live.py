@@ -168,6 +168,104 @@ class TestExtractAudioFromChunk:
 class TestStitchAudioVideo:
     """Tests for stitch_audio_video function."""
 
+    def test_stitch_audio_video_duration_with_short_audio(self):
+        """
+        Test that video duration is preserved when audio is shorter.
+
+        This test verifies the fix for the issue where 8-second videos were being
+        truncated to match shorter audio commentary (~3-4 seconds).
+        """
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        # Create a real 8-second test video
+        temp_dir = Path(tempfile.mkdtemp(prefix="duration_test_"))
+
+        try:
+            # Generate 8-second black video at 30fps
+            test_video = temp_dir / "test_8sec.mp4"
+            cmd = [
+                "ffmpeg",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=640x480:d=8",
+                "-vf",
+                "fps=30",
+                "-pix_fmt",
+                "yuv420p",
+                str(test_video),
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                pytest.skip(f"Failed to create test video: {result.stderr}")
+
+            # Read video data
+            with open(test_video, "rb") as f:
+                video_data = f.read()
+
+            # Create 3 seconds of fake PCM audio (24kHz, 16-bit mono)
+            # 3 seconds * 24000 samples/sec * 2 bytes/sample = 144,000 bytes
+            audio_pcm = b"\x00\x01" * (24000 * 3)
+
+            print("\n📹 Test setup:")
+            print(f"   Video: 8 seconds ({len(video_data):,} bytes)")
+            print(f"   Audio: 3 seconds ({len(audio_pcm):,} bytes)")
+
+            # Stitch them together
+            stitched_video = stitch_audio_video(video_data, audio_pcm, 24000)
+
+            # Save stitched video for analysis
+            output_video = temp_dir / "stitched.mp4"
+            with open(output_video, "wb") as f:
+                f.write(stitched_video)
+
+            # Use ffprobe to check the duration
+            ffprobe_cmd = [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(output_video),
+            ]
+
+            result = subprocess.run(ffprobe_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                pytest.fail(f"ffprobe failed: {result.stderr}")
+
+            duration = float(result.stdout.strip())
+            print("\n📊 Result:")
+            print(f"   Output video duration: {duration:.2f} seconds")
+
+            # The bug: with -shortest flag, duration would be ~3 seconds (matching audio)
+            # The fix: without -shortest flag, duration should be ~8 seconds (original video)
+
+            if duration < 7.0:
+                print(
+                    f"\n❌ BUG CONFIRMED: Video was truncated to {duration:.2f}s (expected 8s)"
+                )
+                print("   This confirms the -shortest flag is causing the issue.")
+                pytest.fail(
+                    f"Video duration is {duration:.2f}s but should be ~8s. "
+                    f"The -shortest flag is truncating the video to match the shorter audio."
+                )
+            else:
+                print(f"\n✅ Video duration preserved at {duration:.2f}s (expected 8s)")
+                assert duration >= 7.5, (
+                    f"Duration should be close to 8s, got {duration:.2f}s"
+                )
+
+        finally:
+            # Cleanup
+            import shutil
+
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_stitch_audio_video_basic(self):
         """Test basic audio/video stitching."""
         video_data = b"fake_video"
