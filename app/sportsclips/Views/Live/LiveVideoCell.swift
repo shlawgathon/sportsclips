@@ -20,9 +20,9 @@ struct LiveVideoCell: View {
     @State private var viewCount: Int = 0
     @StateObject private var localStorage = LocalStorageService.shared
     @FocusState private var isCommentFieldFocused: Bool
-    @State private var showSportDropdown = false
     @State private var isSummaryExpanded = false
     @State private var showComments = true
+    @State private var showSportDropdown = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -54,6 +54,53 @@ struct LiveVideoCell: View {
                 // Top bar - category, likes, and share
                 VStack {
                     HStack(spacing: 12) {
+                        // Sport filter button (round, on the left)
+                        Button(action: {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
+                                showSportDropdown.toggle()
+                            }
+                        }) {
+                            Image(systemName: "line.3.horizontal.decrease")
+                                .font(.system(size: 13, weight: .medium))
+                                .rotationEffect(.degrees(showSportDropdown ? 180 : 0))
+                                .scaleEffect(showSportDropdown ? 1.1 : 1.0)
+                        }
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .background(
+                            ZStack {
+                                // Liquid glass background with bubble effect
+                                Circle()
+                                    .fill(.ultraThinMaterial)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(
+                                                LinearGradient(
+                                                    colors: [
+                                                        .white.opacity(showSportDropdown ? 0.5 : 0.3),
+                                                        .white.opacity(showSportDropdown ? 0.3 : 0.1)
+                                                    ],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                ),
+                                                lineWidth: showSportDropdown ? 2.0 : 1.5
+                                            )
+                                    )
+                                    .shadow(
+                                        color: .white.opacity(showSportDropdown ? 0.4 : 0.2), 
+                                        radius: showSportDropdown ? 12 : 8, 
+                                        x: 0, 
+                                        y: showSportDropdown ? 4 : 2
+                                    )
+                                    .scaleEffect(showSportDropdown ? 1.05 : 1.0)
+
+                                // White tint overlay with bubble effect
+                                Circle()
+                                    .fill(.white.opacity(showSportDropdown ? 0.2 : 0.1))
+                                    .scaleEffect(showSportDropdown ? 1.1 : 1.0)
+                            }
+                        )
+
                         // Sport tag with LIVE indicator
                         HStack(spacing: 6) {
                             Circle()
@@ -72,6 +119,7 @@ struct LiveVideoCell: View {
                             Text("LIVE")
                                 .font(.system(size: 11, weight: .bold))
                         }
+                        .frame(minWidth: 80)
                         .foregroundColor(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -102,87 +150,48 @@ struct LiveVideoCell: View {
                             }
                         )
 
-                        // Sport filter button - same height as live tag
-                        Button(action: {
-                            showSportDropdown.toggle()
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "line.3.horizontal.decrease")
-                                    .font(.system(size: 13, weight: .medium))
-
-                                Text(selectedSport == .all ? "All" : selectedSport.rawValue)
-                                    .font(.system(size: 11, weight: .bold))
-                            }
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            ZStack {
-                                // Liquid glass background
-                                Capsule()
-                                    .fill(.ultraThinMaterial)
-                                    .overlay(
-                                        Capsule()
-                                            .stroke(
-                                                LinearGradient(
-                                                    colors: [
-                                                        .white.opacity(0.3),
-                                                        .white.opacity(0.1)
-                                                    ],
-                                                    startPoint: .topLeading,
-                                                    endPoint: .bottomTrailing
-                                                ),
-                                                lineWidth: 1.5
-                                            )
-                                    )
-                                    .shadow(color: .white.opacity(0.2), radius: 8, x: 0, y: 2)
-
-                                // White tint overlay
-                                Capsule()
-                                    .fill(.white.opacity(0.1))
-                            }
-                        )
-
                         Spacer()
 
-                        // View count
-                        HStack(spacing: 4) {
-                            Image(systemName: "eye.fill")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.white.opacity(0.8))
+                        // Views and likes in column
+                        VStack(spacing: 8) {
+                            // View count
+                            HStack(spacing: 4) {
+                                Image(systemName: "eye.fill")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.8))
 
-                            Text("\(viewCount)")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(.white.opacity(0.2), lineWidth: 1)
-                        )
+                                Text("\(viewCount)")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(.white.opacity(0.2), lineWidth: 1)
+                            )
 
-                        // Like counter
-                        HStack(spacing: 4) {
-                            Image(systemName: isLiked ? "heart.fill" : "heart")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(isLiked ? .red : .white)
+                            // Like counter
+                            HStack(spacing: 4) {
+                                Image(systemName: isLiked ? "heart.fill" : "heart")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(isLiked ? .red : .white)
 
-                            Text(formatCount(video.likes + (isLiked ? 1 : 0)))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(.white.opacity(0.2), lineWidth: 1)
-                        )
-                        .onTapGesture {
-                            toggleLike()
+                                Text(formatCount(video.likes + (isLiked ? 1 : 0)))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(.white.opacity(0.2), lineWidth: 1)
+                            )
+                            .onTapGesture {
+                                toggleLike()
+                            }
                         }
 
                     }
@@ -327,15 +336,17 @@ struct LiveVideoCell: View {
                 }
                 .zIndex(20) // Ensure comment section is above menu bar and dropdown
 
-                // Sport filter dropdown - positioned as overlay
+                // Sport filter dropdown - positioned as overlay with bubble animation
                 if showSportDropdown {
                     VStack {
                         HStack {
                             VStack(spacing: 0) {
                                 ForEach(VideoClip.Sport.allCases, id: \.self) { sport in
                                     Button(action: {
-                                        showSportDropdown = false
-                                        onSportChange(sport)
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            showSportDropdown = false
+                                            onSportChange(sport)
+                                        }
                                     }) {
                                         HStack(spacing: 8) {
                                             if sport == .all {
@@ -377,6 +388,8 @@ struct LiveVideoCell: View {
                                             .stroke(.white.opacity(0.2), lineWidth: 1)
                                     )
                             )
+                            .scaleEffect(showSportDropdown ? 1.0 : 0.8)
+                            .opacity(showSportDropdown ? 1.0 : 0.0)
                             .padding(.leading, 16)
                             .padding(.top, 100) // Position below the top bar
 
@@ -385,7 +398,11 @@ struct LiveVideoCell: View {
 
                         Spacer()
                     }
-                    .zIndex(20) // Above everything else
+                    .zIndex(30) // Above everything else
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.8).combined(with: .opacity),
+                        removal: .scale(scale: 0.8).combined(with: .opacity)
+                    ))
                 }
             }
         }
