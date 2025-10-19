@@ -54,10 +54,22 @@ class AgentClient(application: Application) {
         val description: String? = null
     )
 
+    @Serializable
+    data class LiveChunkMeta(
+        val src_video_url: String,
+        val chunk_number: Int,
+        val format: String,
+        val audio_sample_rate: Int,
+        val commentary_length_bytes: Long,
+        val video_length_bytes: Long,
+        val num_chunks_processed: Int
+    )
+
     suspend fun processVideo(
         sourceUrl: String,
         isLive: Boolean,
-        onSnippet: suspend (bytes: ByteArray, title: String?, description: String?) -> Unit
+        onSnippet: suspend (bytes: ByteArray, title: String?, description: String?) -> Unit,
+        onLiveChunk: (bytes: ByteArray, meta: LiveChunkMeta) -> Unit = { _, _ -> }
     ) {
         // Acquire the gate before starting the websocket. Other callers will suspend
         // here until we receive at least one response (or error/close) from the agent.
@@ -132,6 +144,36 @@ class AgentClient(application: Application) {
                                         val msg = try { element.jsonObject["message"]?.jsonPrimitive?.content } catch (t: Throwable) { null }
                                         log.warn("[AgentClient] error message from agent: ${msg ?: "<none>"}")
                                         break
+                                    }
+                                    "live_commentary_chunk" -> {
+                                        // Counts as a response too
+                                        releaseGateIfNeeded()
+                                        val data = element.jsonObject["data"] as? JsonElement
+                                        if (data == null) {
+                                            log.warn("[AgentClient] 'live_commentary_chunk' missing 'data' field: $txt")
+                                        } else {
+                                            val base64 = data.jsonObject["video_data"]?.jsonPrimitive?.content
+                                            val metaObj = data.jsonObject["metadata"]?.jsonObject
+                                            if (base64 == null || metaObj == null) {
+                                                log.warn("[AgentClient] live_commentary_chunk missing fields")
+                                            } else {
+                                                try {
+                                                    val meta = LiveChunkMeta(
+                                                        src_video_url = metaObj["src_video_url"]?.jsonPrimitive?.content ?: sourceUrl,
+                                                        chunk_number = metaObj["chunk_number"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                                                        format = metaObj["format"]?.jsonPrimitive?.content ?: "",
+                                                        audio_sample_rate = metaObj["audio_sample_rate"]?.jsonPrimitive?.content?.toIntOrNull() ?: 24000,
+                                                        commentary_length_bytes = metaObj["commentary_length_bytes"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                                                        video_length_bytes = metaObj["video_length_bytes"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
+                                                        num_chunks_processed = metaObj["num_chunks_processed"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                                                    )
+                                                    val bytes = Base64.getDecoder().decode(base64)
+                                                    onLiveChunk(bytes, meta)
+                                                } catch (t: Throwable) {
+                                                    log.warn("[AgentClient] Failed to parse live_commentary_chunk meta: ${t.message}")
+                                                }
+                                            }
+                                        }
                                     }
                                     else -> {
                                         // Unknown message still counts as a response; release once.
