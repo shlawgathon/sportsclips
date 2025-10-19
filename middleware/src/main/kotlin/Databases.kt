@@ -247,7 +247,7 @@ fun Application.configureDatabases()
             get("/games/{gameId}") {
                 val gid = call.parameters["gameId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val game = liveGameService.getByGameId(gid) ?: return@get call.respond(HttpStatusCode.NotFound)
-                call.respond(mapOf("id" to game.first, "game" to game.second))
+                call.respond(game.second)
             }
 
             // ========== Clips ==========

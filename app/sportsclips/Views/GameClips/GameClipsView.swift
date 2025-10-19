@@ -103,6 +103,7 @@ struct GameClipsView: View {
                                                 // Caption on the left
                                                             CaptionView(
                                                                 video: video,
+                                                                        gameName: resolvedGameName,
                                                                 onGameTap: {
                                                                     // No action needed in game clips view
                                                                 },
@@ -317,7 +318,7 @@ struct GameClipsView: View {
             do {
                 let game = try await APIClient.shared.getGame(gameId: gameId)
                 await MainActor.run {
-                    self.resolvedGameName = game.game.name
+                    self.resolvedGameName = game.name
                 }
             } catch {
                 // Leave resolvedGameName as nil on failure; fallback to passed gameName
