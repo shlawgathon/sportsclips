@@ -4,20 +4,24 @@ Prompts and tool schemas for highlight trimming.
 
 from google.genai import types
 
-TRIM_HIGHLIGHT_PROMPT_TEMPLATE = """Analyze this video clip which contains a highlight moment. Your task is to identify the exact portion of the video that should be kept.
+TRIM_HIGHLIGHT_PROMPT_TEMPLATE = """I'm showing you 7 separate video segments (Chunk 1 through Chunk 7) in order, each exactly 2 seconds long (total 14 seconds of footage).
 
-The video is divided into 7 chunks of 2 seconds each (total 14 seconds):
-- Chunk 1: 0-2s
-- Chunk 2: 2-4s
-- Chunk 3: 4-6s
-- Chunk 4: 6-8s
-- Chunk 5: 8-10s
-- Chunk 6: 10-12s
-- Chunk 7: 12-14s
+Each video you see corresponds to one chunk:
+- Chunk 1: 0-2s (first video)
+- Chunk 2: 2-4s (second video)
+- Chunk 3: 4-6s (third video)
+- Chunk 4: 6-8s (fourth video)
+- Chunk 5: 8-10s (fifth video)
+- Chunk 6: 10-12s (sixth video)
+- Chunk 7: 12-14s (seventh video)
 
 {detection_context}
 
-Identify which consecutive segments contain the actual highlight action. Include a brief buildup and follow-through, but exclude unnecessary footage before or after. It is better to be conservative and include more of the footage.
+Your task: Identify which consecutive chunks contain the actual highlight action.
+- Include brief buildup (typically 1-2 chunks before the peak action)
+- Include follow-through (typically 1 chunk after)
+- Exclude dead time before or after the action
+- Be conservative: when in doubt, include the chunk
 
 Use the report_trim_segments function to specify which segments to keep."""
 
