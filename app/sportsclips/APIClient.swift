@@ -205,7 +205,13 @@ final class APIClient {
         try await request("/live", method: "POST", body: CreateLiveRequest(title: title, description: description, streamUrl: streamUrl, isLive: isLive), response: IdResponse.self)
     }
 
-    // MARK: - Live Polling (Comments & Viewers)
+    // MARK: - Live Polling (Comments, Viewers, Live Clips)
+    struct LiveChunkDTO: Codable {
+        let chunkNumber: Int
+        let s3Key: String
+        let url: String
+    }
+    struct LiveChunksResponse: Codable { let chunks: [LiveChunkDTO] }
     struct LiveCommentDTO: Codable {
         let id: String
         let clipId: String
@@ -243,6 +249,13 @@ final class APIClient {
 
     func liveHeartbeat(clipId: String, viewerId: String) async throws -> ViewerInfoResponse {
         try await request("/live/\(clipId)/viewers/heartbeat", method: "POST", body: ViewerHeartbeatRequest(viewerId: viewerId), response: ViewerInfoResponse.self)
+    }
+
+    func liveFetchChunks(streamUrl: String, afterChunk: Int? = nil, limit: Int = 10) async throws -> [LiveChunkDTO] {
+        var query: [URLQueryItem] = [URLQueryItem(name: "stream_url", value: streamUrl), URLQueryItem(name: "limit", value: String(limit))]
+        if let afterChunk = afterChunk { query.append(URLQueryItem(name: "after_chunk", value: String(afterChunk))) }
+        let resp: LiveChunksResponse = try await request("/live/chunks", queryItems: query, response: LiveChunksResponse.self)
+        return resp.chunks
     }
 
     // MARK: - Helpers (Query)

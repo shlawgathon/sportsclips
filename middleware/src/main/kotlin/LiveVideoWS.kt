@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.collectLatest
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import gg.growly.services.S3Utility
+import java.security.MessageDigest
 
 // Outgoing message container for websocket (text or binary)
 sealed interface OutgoingMsg {
@@ -143,6 +145,24 @@ object LiveStreamCache {
                         val ncp = meta.num_chunks_processed
                         val dt = System.currentTimeMillis() - startedAt
                         app.log.info("[LiveStreamCache] onLiveChunk url=${stream.url} chunk=${meta.chunk_number} bytes=$sz fmt=${meta.format} sr=${meta.audio_sample_rate} c_len=${meta.commentary_length_bytes} v_len=${meta.video_length_bytes} elapsedMs=$dt${if (ncp != null) " n=$ncp" else ""}")
+
+                        // Upload chunk to S3 and persist reference
+                        val s3 = S3Utility(bucketName = "sportsclips-clip-store", region = "auto")
+                        val hash = MessageDigest.getInstance("SHA-1").digest(meta.src_video_url.toByteArray()).joinToString("") { "%02x".format(it) }
+                        val s3Key = "live/${hash}/chunk_%06d.mp4".format(meta.chunk_number)
+                        scope.launch {
+                            try {
+                                s3.uploadBytes(bytes, s3Key, contentType = "video/mp4")
+                            } catch (e: Exception) {
+                                app.log.warn("[LiveStreamCache] Failed to upload live chunk to S3 key=$s3Key reason=${e.message}", e)
+                            }
+                            try {
+                                val liveChunkService = LiveChunkService(app.connectToMongoDB())
+                                liveChunkService.addChunk(LiveChunk(streamUrl = meta.src_video_url, chunkNumber = meta.chunk_number, s3Key = s3Key))
+                            } catch (e: Exception) {
+                                app.log.warn("[LiveStreamCache] Failed to persist LiveChunk url=${meta.src_video_url} chunk=${meta.chunk_number}: ${e.message}")
+                            }
+                        }
                         // Persist progress in LiveVideos collection
                         scope.launch {
                             try {
@@ -159,7 +179,7 @@ object LiveStreamCache {
                                 app.log.warn("[LiveStreamCache] Failed to update LiveVideos progress for url=${meta.src_video_url}: ${e.message}")
                             }
                         }
-                        // Send metadata-only JSON first (no base64 payload)
+                        // Send metadata-only JSON (include s3_key) and DO NOT stream binary
                         val metaJson = buildString {
                             append("{")
                             append("\"type\":\"live_commentary_chunk\",")
@@ -187,14 +207,16 @@ object LiveStreamCache {
                                 append("\"num_chunks_processed\":")
                                 append(ncp)
                             }
+                            append(",\"s3_key\":\"")
+                            append(s3Key)
+                            append("\"")
                             append("}") // end metadata
                             append("}") // end data
                             append("}") // end root
                         }
                         val emittedText = stream.flow.tryEmit(OutgoingMsg.Text(metaJson))
-                        val emittedBin = stream.flow.tryEmit(OutgoingMsg.Binary(bytes))
-                        if (!emittedText || !emittedBin) {
-                            app.log.warn("[LiveStreamCache] onLiveChunk drop url=${stream.url} chunk=${meta.chunk_number} bytes=$sz (buffer full)")
+                        if (!emittedText) {
+                            app.log.warn("[LiveStreamCache] onLiveChunk drop meta url=${stream.url} chunk=${meta.chunk_number} bytes=$sz (buffer full)")
                         }
                     }
                 )

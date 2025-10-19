@@ -35,6 +35,12 @@ struct SnippetMessage: Decodable {
     let data: DataModel
 }
 
+struct LiveClipRef: Decodable {
+    let chunkNumber: Int
+    let s3Key: String
+    let url: String
+}
+
 final class LiveVideoService: NSObject {
     private var task: URLSessionWebSocketTask?
     private let session: URLSession
@@ -135,6 +141,17 @@ final class LiveVideoService: NSObject {
             onError(text)
         } else {
             self.log.debug("[conn:\(self.connectionId)] text type=\(type)")
+        }
+    }
+
+    // MARK: - HTTP polling for live clips
+    func pollLiveChunks(streamUrl: String, afterChunk: Int? = nil, limit: Int = 5) async -> [LiveClipRef] {
+        do {
+            let chunks = try await APIClient.shared.liveFetchChunks(streamUrl: streamUrl, afterChunk: afterChunk, limit: limit)
+            return chunks.map { LiveClipRef(chunkNumber: $0.chunkNumber, s3Key: $0.s3Key, url: $0.url) }
+        } catch {
+            self.log.error("[poll] failed: \(error.localizedDescription)")
+            return []
         }
     }
 }

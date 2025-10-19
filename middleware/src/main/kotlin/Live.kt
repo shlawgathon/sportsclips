@@ -8,6 +8,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import gg.growly.connectToMongoDB
 import gg.growly.LiveVideoService
+import gg.growly.LiveChunkService
+import gg.growly.LiveChunk
+import gg.growly.services.S3Utility
+import gg.growly.services.S3Helper
 
 /**
  * Lightweight in-memory live system for comments and viewers per clip.
@@ -118,6 +122,18 @@ data class LiveListItemDTO(
     val live: LiveVideoDTO
 )
 
+@Serializable
+data class LiveChunkDTO(
+    val chunkNumber: Int,
+    val s3Key: String,
+    val url: String
+)
+
+@Serializable
+data class LiveChunksResponse(
+    val chunks: List<LiveChunkDTO>
+)
+
 fun Route.liveRoutes() {
     // Live videos collection
     get("/live-videos") {
@@ -215,6 +231,28 @@ fun Route.liveRoutes() {
             val count = LiveHub.heartbeat(clipId, hb.viewerId)
             try { LiveCommentsWSHub.broadcastViewerCount(clipId) } catch (_: Exception) {}
             call.respond(ViewerInfoResponse(clipId, count))
+        }
+
+        // Live chunk references: poll for latest uploaded chunk URLs
+        get("/chunks") {
+            val app = call.application
+            val streamUrl = call.request.queryParameters["stream_url"]
+            if (streamUrl.isNullOrBlank()) {
+                return@get call.respondText("Missing stream_url", status = io.ktor.http.HttpStatusCode.BadRequest)
+            }
+            val afterChunk = call.request.queryParameters["after_chunk"]?.toIntOrNull()
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 10
+            val svc = LiveChunkService(app.connectToMongoDB())
+            val chunks = svc.listByStreamUrl(streamUrl, afterChunk, limit)
+            val s3 = S3Utility(bucketName = "sportsclips-clip-store", region = "auto")
+            val dtos = chunks.map {
+                val url = try { s3.generatePresignedGetUrl(it.s3Key) } catch (_: Exception) {
+                    val s3h = S3Helper(app)
+                    s3h.directDownloadUrl(it.s3Key)
+                }
+                LiveChunkDTO(chunkNumber = it.chunkNumber, s3Key = it.s3Key, url = url)
+            }
+            call.respond(LiveChunksResponse(dtos))
         }
     }
 }

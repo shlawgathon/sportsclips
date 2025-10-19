@@ -22,6 +22,7 @@ struct LiveVideoPlayerView: View {
     @State private var liveBufferMap: [Int: URL] = [:]
     @State private var nextExpectedChunk: Int = 1
     @State private var isLivePlaying = false
+    @State private var livePollTask: Task<Void, Never>? = nil
 
     var body: some View {
         GeometryReader { geometry in
@@ -103,18 +104,24 @@ struct LiveVideoPlayerView: View {
     private func connectLive() {
         guard let gameId = video.gameId, !gameId.isEmpty else { return }
         let sourceUrl = "https://www.youtube.com/watch?v=\(gameId)"
-        let baseWS = APIClient.shared.baseWebSocketURL()
-        liveService.connect(baseURL: baseWS, videoURL: sourceUrl, isLive: true, onChunk: { data, meta in
-            // Write chunk to temp file and buffer by chunk number
-            if let url = writeChunkToTemp(data: data, chunk: meta.chunk_number) {
-                liveBufferMap[meta.chunk_number] = url
-                flushContiguousChunksToQueue(minInitialBuffer: 2)
+        // Start polling for chunk references and enqueue by order
+        livePollTask?.cancel()
+        livePollTask = Task { [sourceUrl] in
+            var lastChunk = nextExpectedChunk - 1
+            while !Task.isCancelled {
+                let chunks = await liveService.pollLiveChunks(streamUrl: sourceUrl, afterChunk: lastChunk, limit: 3)
+                if !chunks.isEmpty {
+                    for ch in chunks {
+                        if let url = URL(string: ch.url) {
+                            liveBufferMap[ch.chunkNumber] = url
+                            lastChunk = max(lastChunk, ch.chunkNumber)
+                        }
+                    }
+                    flushContiguousChunksToQueue(minInitialBuffer: 2)
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
             }
-        }, onSnippet: { _, _ in
-            // Optional: handle highlight snippets (ignored in MVP)
-        }, onError: { err in
-            print("Live WS error: \(err)")
-        })
+        }
     }
 
     // Flush any contiguous sequence of buffered chunks starting from nextExpectedChunk into the queue.
@@ -140,12 +147,11 @@ struct LiveVideoPlayerView: View {
     }
 
     private func disconnectLive() {
-        liveService.disconnect()
+        livePollTask?.cancel()
+        livePollTask = nil
         queuePlayer?.pause()
         queuePlayer?.removeAllItems()
         queuePlayer = nil
-        // Cleanup temp files
-        for url in liveBufferMap.values { try? FileManager.default.removeItem(at: url) }
         liveBufferMap.removeAll()
         isLivePlaying = false
     }

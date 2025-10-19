@@ -64,6 +64,21 @@ data class LiveVideo(
 }
 
 @Serializable
+data class LiveChunk(
+    val streamUrl: String,
+    val chunkNumber: Int,
+    val s3Key: String,
+    val createdAt: Long = Instant.now().epochSecond
+) {
+    fun toDocument(): Document = Document.parse(json.encodeToString(this))
+
+    companion object {
+        private val json = Json { ignoreUnknownKeys = true }
+        fun fromDocument(document: Document): LiveChunk = json.decodeFromString(document.toJson())
+    }
+}
+
+@Serializable
 enum class Sport {
     All,
     Football,
@@ -578,5 +593,48 @@ class TrackedVideoService(private val database: MongoDatabase) {
 
     suspend fun listAll(): List<Pair<String, TrackedVideo>> = withContext(Dispatchers.IO) {
         collection.find().map { it["_id"].toString() to TrackedVideo.fromDocument(it) }.toList()
+    }
+}
+
+
+class LiveChunkService(private val database: MongoDatabase) {
+    private val collection: MongoCollection<Document>
+
+    init {
+        try { database.createCollection("live_chunks") } catch (_: Exception) {}
+        collection = database.getCollection("live_chunks")
+        try { collection.createIndex(Indexes.ascending("streamUrl", "chunkNumber"), IndexOptions().unique(true)) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.descending("createdAt")) } catch (_: Exception) {}
+    }
+
+    suspend fun addChunk(chunk: LiveChunk) = withContext(Dispatchers.IO) {
+        val existing = collection.find(
+            Filters.and(
+                Filters.eq("streamUrl", chunk.streamUrl),
+                Filters.eq("chunkNumber", chunk.chunkNumber)
+            )
+        ).first()
+        if (existing == null) {
+            collection.insertOne(chunk.toDocument())
+        } else {
+            collection.findOneAndReplace(
+                Filters.eq("_id", existing["_id"]),
+                chunk.toDocument()
+            )
+        }
+    }
+
+    suspend fun listByStreamUrl(streamUrl: String, afterChunk: Int? = null, limit: Int = 10): List<LiveChunk> = withContext(Dispatchers.IO) {
+        val filter = if (afterChunk != null) {
+            Filters.and(
+                Filters.eq("streamUrl", streamUrl),
+                Filters.gt("chunkNumber", afterChunk)
+            )
+        } else Filters.eq("streamUrl", streamUrl)
+        collection.find(filter)
+            .sort(Document("chunkNumber", 1))
+            .limit(limit)
+            .map(LiveChunk::fromDocument)
+            .toList()
     }
 }
