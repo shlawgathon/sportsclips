@@ -236,22 +236,30 @@ fun Route.liveRoutes() {
         // Live chunk references: poll for latest uploaded chunk URLs
         get("/chunks") {
             val app = call.application
+            val log = app.log
+            val started = System.currentTimeMillis()
             val streamUrl = call.request.queryParameters["stream_url"]
-            if (streamUrl.isNullOrBlank()) {
-                return@get call.respondText("Missing stream_url", status = io.ktor.http.HttpStatusCode.BadRequest)
-            }
             val afterChunk = call.request.queryParameters["after_chunk"]?.toIntOrNull()
             val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 10
+            log.info("[LiveAPI] GET /live/chunks start stream_url='${streamUrl ?: ""}' after_chunk=${afterChunk ?: -1} limit=$limit")
+            if (streamUrl.isNullOrBlank()) {
+                log.warn("[LiveAPI] GET /live/chunks missing stream_url")
+                return@get call.respondText("Missing stream_url", status = io.ktor.http.HttpStatusCode.BadRequest)
+            }
             val svc = LiveChunkService(app.connectToMongoDB())
             val chunks = svc.listByStreamUrl(streamUrl, afterChunk, limit)
             val s3 = S3Utility(bucketName = "sportsclips-clip-store", region = "auto")
+            var presigned = true
             val dtos = chunks.map {
                 val url = try { s3.generatePresignedGetUrl(it.s3Key) } catch (_: Exception) {
+                    presigned = false
                     val s3h = S3Helper(app)
                     s3h.directDownloadUrl(it.s3Key)
                 }
                 LiveChunkDTO(chunkNumber = it.chunkNumber, s3Key = it.s3Key, url = url)
             }
+            val dt = System.currentTimeMillis() - started
+            log.info("[LiveAPI] GET /live/chunks success count=${dtos.size} presigned=$presigned durationMs=$dt stream_url='$streamUrl'")
             call.respond(LiveChunksResponse(dtos))
         }
     }
