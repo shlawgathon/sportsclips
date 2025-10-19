@@ -75,16 +75,16 @@ fun Application.configureDatabases()
                         {
                             log.info("[YT-SCHEDULER] Tick started")
                             val sports = Sport.values().filter { it != Sport.All }
-                            for (sp in sports)
+                            for (sp in listOf(Sport.Football))
                             {
                                 try
                                 {
                                     log.debug("[YT-SCHEDULER] Querying YouTube for sport=${sp.name}")
-                                    val resp = youtube.searchLiveSports("${sp.name} live", 10)
+                                    val resp = youtube.getVideoDetails(listOf("Q4_4ePnlE8E", "1jJYzb_p2m8", "TFJ4O8BY7as", "j-vRnZkVl98", "eQfxsaGkXuc", "PuecVTQUEb8"))
                                     log.info("[YT-SCHEDULER] sport=${sp.name} fetched=${resp.items.size}")
                                     resp.items.forEach { item ->
-                                        val videoId = item.id.videoId
-                                        val title = item.snippet.title
+                                        val videoId = item.id
+                                        val title = item.snippet!!.title
                                         val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
                                         log.debug("[YT-SCHEDULER] Processing item sport=${sp.name} videoId=$videoId title='${title}'")
                                         // Ensure game exists/upsert
@@ -585,7 +585,7 @@ fun Application.connectToMongoDB(): MongoDatabase
 {
     val uri = "mongodb://localhost:27017/?maxPoolSize=20&w=majority"
     val mongoClient = MongoClients.create(uri)
-    val database = mongoClient.getDatabase("sportsclips-v1")
+    val database = mongoClient.getDatabase("sportsclips-v2")
 
     monitor.subscribe(ApplicationStopped) {
         mongoClient.close()
