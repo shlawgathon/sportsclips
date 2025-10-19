@@ -162,9 +162,10 @@ struct ProfileView: View {
         isUpdatingProfile = true
         Task {
             do {
-                let resp = try await APIClient.shared.updateUserProfile(username: name, profilePictureBase64: nil)
+                let resp = try await APIClient.shared.updateUserProfile(displayName: name, profilePictureBase64: nil)
                 await MainActor.run {
-                    localStorage.updateUsername(resp.user.username)
+                    // Store displayName locally in the username field for display purposes
+                    localStorage.updateUsername(resp.user.displayName ?? name)
                     isEditingName = false
                     isUpdatingProfile = false
                 }

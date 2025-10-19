@@ -185,7 +185,7 @@ fun Application.configureDatabases()
     @Serializable data class RecommendationItem(val id: String, val score: Double, val clip: Clip)
     @Serializable data class FeedItem(val id: String, val clip: Clip, val viewed: Boolean)
     @Serializable data class FeedResponse(val items: List<FeedItem>, val nextCursor: Long?)
-    @Serializable data class UpdateProfileRequest(val username: String? = null, val profilePictureBase64: String? = null)
+    @Serializable data class UpdateProfileRequest(val displayName: String? = null, val profilePictureBase64: String? = null)
     @Serializable data class UserItem(val id: String, val user: User)
 
     routing {
@@ -287,10 +287,25 @@ fun Application.configureDatabases()
                 val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 val session = call.sessions.get(UserSession::class) as? UserSession
                 val userId = session?.userId ?: "anonymous"
-                likeService.add(Like(clipId = id, userId = userId))
-                clipService.incLikeAndComments(id, likeDelta = 1)
-                if (userId != "anonymous") {
-                    userService.addLikedClip(userId, id)
+                val insertedId = likeService.add(Like(clipId = id, userId = userId))
+                if (insertedId != null) {
+                    clipService.incLikeAndComments(id, likeDelta = 1)
+                    if (userId != "anonymous") {
+                        userService.addLikedClip(userId, id)
+                    }
+                }
+                call.respond(HttpStatusCode.OK)
+            }
+            delete("/clips/{id}/like") {
+                val id = call.parameters["id"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
+                val session = call.sessions.get(UserSession::class) as? UserSession
+                val userId = session?.userId ?: "anonymous"
+                val removed = likeService.remove(id, userId)
+                if (removed) {
+                    clipService.incLikeAndComments(id, likeDelta = -1)
+                    if (userId != "anonymous") {
+                        userService.removeLikedClip(userId, id)
+                    }
                 }
                 call.respond(HttpStatusCode.OK)
             }
@@ -332,7 +347,7 @@ fun Application.configureDatabases()
                 val session = call.sessions.get(UserSession::class) as? UserSession
                 val userId = session?.userId ?: return@post call.respond(HttpStatusCode.Unauthorized)
                 val body = call.receive<UpdateProfileRequest>()
-                val updated = userService.updateProfile(userId, body.username, body.profilePictureBase64)
+                val updated = userService.updateProfile(userId, body.displayName, body.profilePictureBase64)
                 if (updated != null) call.respond(UserItem(id = userId, user = updated)) else call.respond(HttpStatusCode.NotFound)
             }
 

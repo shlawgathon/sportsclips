@@ -22,6 +22,7 @@ data class User(
     val username: String,
     val passwordHash: String,
     val profilePictureBase64: String? = null,
+    val displayName: String? = null,
     val likedClipIds: List<String> = emptyList()
 ) {
     fun toDocument(): Document = Document.parse(json.encodeToString(this))
@@ -146,7 +147,12 @@ class UserService(private val database: MongoDatabase) {
     }
 
     suspend fun create(username: String, password: String, profilePictureBase64: String?): String = withContext(Dispatchers.IO) {
-        val user = User(username = username, passwordHash = User.hashPassword(password), profilePictureBase64 = profilePictureBase64)
+        val user = User(
+            username = username,
+            passwordHash = User.hashPassword(password),
+            profilePictureBase64 = profilePictureBase64,
+            displayName = username
+        )
         val doc = user.toDocument()
         collection.insertOne(doc)
         doc["_id"].toString()
@@ -169,13 +175,14 @@ class UserService(private val database: MongoDatabase) {
         if (user.passwordHash == User.hashPassword(password)) id to user else null
     }
 
-    suspend fun updateProfile(userId: String, username: String?, profilePictureBase64: String?): User? = withContext(Dispatchers.IO) {
+    suspend fun updateProfile(userId: String, displayName: String?, profilePictureBase64: String?): User? = withContext(Dispatchers.IO) {
         val filter = Filters.eq("_id", ObjectId(userId))
         val current = collection.find(filter).first() ?: return@withContext null
         val user = User.fromDocument(current)
         val updated = user.copy(
-            username = username ?: user.username,
-            profilePictureBase64 = profilePictureBase64 ?: user.profilePictureBase64
+            // username is immutable
+            profilePictureBase64 = profilePictureBase64 ?: user.profilePictureBase64,
+            displayName = displayName ?: user.displayName ?: user.username
         )
         collection.findOneAndReplace(filter, updated.toDocument())
         updated
@@ -186,6 +193,14 @@ class UserService(private val database: MongoDatabase) {
         val current = collection.find(filter).first() ?: return@withContext
         val user = User.fromDocument(current)
         val updated = user.copy(likedClipIds = (user.likedClipIds + clipId).distinct())
+        collection.findOneAndReplace(filter, updated.toDocument())
+    }
+
+    suspend fun removeLikedClip(userId: String, clipId: String) = withContext(Dispatchers.IO) {
+        val filter = Filters.eq("_id", ObjectId(userId))
+        val current = collection.find(filter).first() ?: return@withContext
+        val user = User.fromDocument(current)
+        val updated = user.copy(likedClipIds = user.likedClipIds.filterNot { it == clipId })
         collection.findOneAndReplace(filter, updated.toDocument())
     }
 }
@@ -330,6 +345,11 @@ class LikeService(private val database: MongoDatabase) {
         } catch (_: Exception) {
             null
         }
+    }
+
+    suspend fun remove(clipId: String, userId: String): Boolean = withContext(Dispatchers.IO) {
+        val result = collection.deleteOne(Filters.and(Filters.eq("clipId", clipId), Filters.eq("userId", userId)))
+        result.deletedCount > 0
     }
 }
 

@@ -148,6 +148,15 @@ class APIService {
         }
     }
 
+    func unlikeVideo(clipId: String) async throws {
+        do {
+            try await apiClient.unlikeClip(id: clipId)
+        } catch {
+            print("Failed to unlike video: \(error)")
+            throw error
+        }
+    }
+
     func postComment(clipId: String, text: String) async throws {
         do {
             try await apiClient.postComment(clipId: clipId, text: text)

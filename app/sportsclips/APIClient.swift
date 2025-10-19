@@ -133,20 +133,21 @@ final class APIClient {
     struct APIUser: Codable {
         let username: String
         let profilePictureBase64: String?
+        let displayName: String?
     }
     struct MeResponse: Codable {
         let id: String
         let user: APIUser
     }
     struct UpdateProfileRequest: Encodable {
-        let username: String?
+        let displayName: String?
         let profilePictureBase64: String?
     }
     func getMe() async throws -> MeResponse {
         try await request("/user/me", response: MeResponse.self)
     }
-    func updateUserProfile(username: String? = nil, profilePictureBase64: String? = nil) async throws -> MeResponse {
-        try await request("/user/profile", method: "POST", body: UpdateProfileRequest(username: username, profilePictureBase64: profilePictureBase64), response: MeResponse.self)
+    func updateUserProfile(displayName: String? = nil, profilePictureBase64: String? = nil) async throws -> MeResponse {
+        try await request("/user/profile", method: "POST", body: UpdateProfileRequest(displayName: displayName, profilePictureBase64: profilePictureBase64), response: MeResponse.self)
     }
 
     // MARK: - Live
@@ -285,6 +286,10 @@ final class APIClient {
 
     func likeClip(id: String) async throws {
         try await requestNoBody("/clips/\(id)/like", method: "POST")
+    }
+
+    func unlikeClip(id: String) async throws {
+        try await requestNoBody("/clips/\(id)/like", method: "DELETE")
     }
 
     struct CommentRequest: Encodable { let text: String }

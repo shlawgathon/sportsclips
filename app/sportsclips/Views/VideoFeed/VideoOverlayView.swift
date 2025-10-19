@@ -24,8 +24,8 @@ struct VideoOverlayView: View {
         self.isLiked = isLiked
         self.onLikeChanged = onLikeChanged
         self._currentLikedState = State(initialValue: isLiked)
-        // Calculate like count based on current state
-        self._likeCount = State(initialValue: video.likes + (isLiked ? 1 : 0))
+        // Initialize with server-provided counts (preloaded)
+        self._likeCount = State(initialValue: video.likes)
         self._commentCount = State(initialValue: video.comments)
     }
 
@@ -83,7 +83,7 @@ struct VideoOverlayView: View {
                 let storedLikedState = interaction.liked
                 if currentLikedState != storedLikedState {
                     currentLikedState = storedLikedState
-                    likeCount = video.likes + (storedLikedState ? 1 : 0)
+                    // Keep server count; do not artificially adjust here.
                 }
             }
 
@@ -140,10 +140,14 @@ struct VideoOverlayView: View {
         // Call API to like/unlike the video
         Task {
             do {
-                try await apiService.likeVideo(clipId: video.id)
-                print("✅ Successfully liked/unliked video: \(video.id)")
+                if newLikedState {
+                    try await apiService.likeVideo(clipId: video.id)
+                } else {
+                    try await apiService.unlikeVideo(clipId: video.id)
+                }
+                print("✅ Successfully updated like state for video: \(video.id)")
             } catch {
-                print("❌ Failed to like/unlike video: \(error)")
+                print("❌ Failed to update like state: \(error)")
                 // Revert the optimistic update on failure
                 await MainActor.run {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
