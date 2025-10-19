@@ -110,13 +110,10 @@ struct VideoClip: Identifiable, Codable {
 
     /// Fetch presigned download URL for this video
     func fetchVideoURL() async throws -> String {
-        guard s3Key != nil else {
+        guard let s3Key = s3Key else {
             throw VideoClipError.missingS3Key
         }
-        let apiClient = APIClient.shared
-        let response = try await apiClient.presignDownload(id: id)
-        print(response.url)
-        return response.url
+        return "https://clipstore.liftgate.io/" + s3Key
     }
 }
 

@@ -4,6 +4,7 @@ package gg.growly.services
 import aws.sdk.kotlin.services.s3.S3Client
 import aws.sdk.kotlin.services.s3.model.*
 import aws.sdk.kotlin.runtime.auth.credentials.StaticCredentialsProvider
+import aws.sdk.kotlin.services.s3.presigners.presignGetObject
 import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
 import aws.smithy.kotlin.runtime.content.ByteStream
 import aws.smithy.kotlin.runtime.content.toByteArray
@@ -13,6 +14,8 @@ import kotlinx.coroutines.flow.flow
 import java.nio.file.Path
 import kotlin.io.path.readBytes
 import kotlin.io.path.writeBytes
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
 
 /**
  * Utility class for common S3 operations using AWS SDK for Kotlin
@@ -232,6 +235,23 @@ class S3Utility(
         } catch (e: Exception) {
             false
         }
+    }
+
+    suspend fun generatePresignedGetUrl(
+        s3Key: String,
+        expiration: Duration = 1.hours,
+        responseContentType: String? = null,
+        responseContentDisposition: String? = null
+    ): String {
+        val request = GetObjectRequest {
+            bucket = bucketName
+            key = s3Key
+            responseContentType?.let { this.responseContentType = it }
+            responseContentDisposition?.let { this.responseContentDisposition = it }
+        }
+
+        val presignRequest = s3Client.presignGetObject(request, expiration)
+        return presignRequest.url.toString()
     }
 
     /**

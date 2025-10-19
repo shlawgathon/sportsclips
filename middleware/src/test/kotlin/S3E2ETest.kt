@@ -52,6 +52,8 @@ class S3E2ETest {
     fun upload_and_download_bytes_end_to_end() = runBlocking {
         val endpoint = resolveEndpoint()
         val bucket = resolveBucket()
+        println(bucket)
+        println(endpoint)
         if (endpoint.isNullOrBlank() || !haveCreds()) {
             println("[S3E2ETest] Skipping test: missing endpoint or credentials in env. Configure R2/AWS/MinIO env vars to run.")
             return@runBlocking
@@ -91,6 +93,7 @@ class S3E2ETest {
         assertTrue(exists, "Uploaded object should exist: $key")
 
         val downloaded = s3.downloadText(key)
+        println(s3.generatePresignedGetUrl(key))
         assertEquals(content, downloaded, "Downloaded content must match uploaded content")
 
         // Cleanup

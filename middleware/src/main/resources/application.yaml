@@ -15,7 +15,7 @@ db:
 
 aws:
   s3:
-    region: us-east-1
+    region: auto
     endpoint: https://ID.r2.cloudflarestorage.com
     bucket: sportsclips-clip-store
   accessKeyId: ID

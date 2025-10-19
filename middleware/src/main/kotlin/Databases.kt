@@ -22,6 +22,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 fun Application.configureDatabases()
 {
@@ -36,10 +38,9 @@ fun Application.configureDatabases()
     val likeService = LikeService(mongoDatabase)
     val viewService = ViewService(mongoDatabase)
     val trackedVideoService = TrackedVideoService(mongoDatabase)
-    val s3 = S3Helper(this)
     val s3u = gg.growly.services.S3Utility(
         bucketName = "sportsclips-clip-store",
-        region = "us-east-1"
+        region = "auto"
     )
     val voyage = VoyageClient(this)
     val youtube = gg.growly.services.YouTubeKtorService(
@@ -275,7 +276,8 @@ fun Application.configureDatabases()
             get("/clips/presign-download/{id}") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val clip = clipService.get(id) ?: return@get call.respond(HttpStatusCode.NotFound)
-                val url = s3.directDownloadUrl(clip.s3Key)
+                val url = s3u.generatePresignedGetUrl(clip.s3Key,
+                    expiration = 5.minutes)
                 call.respond(mapOf("url" to url))
             }
             get("/clips/{id}") {

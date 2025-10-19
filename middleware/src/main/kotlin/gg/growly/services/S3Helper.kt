@@ -12,7 +12,7 @@ import io.ktor.server.config.tryGetString
  */
 class S3Helper(application: Application) {
     private val bucket: String = "sportsclips-clip-store"
-    private val region: String = "us-east-1"
+    private val region: String = "auto"
     private val endpoint: String = Env.getRequired("AWS_S3_BUCKET_ENDPOINT")
 
     private fun normalize(base: String): String = base.trimEnd('/')
