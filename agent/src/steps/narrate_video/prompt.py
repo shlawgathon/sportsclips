@@ -7,6 +7,10 @@ from google.genai import types
 NARRATE_VIDEO_PROMPT = """
 Analyze this sports video clip and generate a brief, engaging narration script that captures the key action.
 
+You will be provided a video clip that may have audio. Regardless of the audio, you should provide narration that is engaging and informative.
+
+Even if the video clip doesn't look like it has live action, please always provide a narration.
+
 Your narration should:
 - Be 3-12 words maximum (short enough to speak in 2-3 seconds)
 - Use present tense and action words
