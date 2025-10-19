@@ -193,7 +193,7 @@ struct CommentRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Username and timestamp
                 HStack {
-                    Text("User \(comment.userId.suffix(4))")
+                    Text(comment.postedByUsername)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
 

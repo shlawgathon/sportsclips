@@ -23,6 +23,7 @@ struct Clip: Codable {
 
 struct CommentItem: Codable {
     let id: String
+    let postedByUsername: String
     let comment: Comment
 }
 

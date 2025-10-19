@@ -182,7 +182,7 @@ fun Application.configureDatabases()
     // Serializable wrappers for responses
     @Serializable data class LiveListItem(val id: String, val live: LiveVideo)
     @Serializable data class ClipListItem(val id: String, val clip: Clip)
-    @Serializable data class CommentItem(val id: String, val comment: Comment)
+    @Serializable data class CommentItem(val id: String, val postedByUsername: String, val comment: Comment)
     @Serializable data class RecommendationItem(val id: String, val score: Double, val clip: Clip)
     @Serializable data class FeedItem(val id: String, val clip: Clip, val viewed: Boolean)
     @Serializable data class FeedResponse(val items: List<FeedItem>, val nextCursor: Long?)
@@ -334,7 +334,7 @@ fun Application.configureDatabases()
             }
             get("/clips/{id}/comments") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                val comments = commentService.listByClip(id).map { (cid, c) -> CommentItem(id = cid, comment = c) }
+                val comments = commentService.listByClip(id).map { (cid, c) -> CommentItem(id = cid, userService.getById(c.userId)?.second?.displayName ?: "???", comment = c) }
                 call.respond(comments)
             }
 
