@@ -13,19 +13,21 @@ struct LikeHistoryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Section header
-            HStack {
-                Text("Liked Videos")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.white)
+            // Section header - only show if there are videos
+            if !videos.isEmpty {
+                HStack {
+                    Text("Liked Videos")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
 
-                Spacer()
+                    Spacer()
 
-                Text("\(videos.count)")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
+                    Text("\(videos.count)")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
 
             if videos.isEmpty {
                 VStack(spacing: 16) {

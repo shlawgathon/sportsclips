@@ -34,11 +34,44 @@ class LocalStorageService: ObservableObject {
     @Published var userProfile: UserProfile?
     @Published var interactions: [VideoInteraction] = []
     @Published var viewHistory: [String] = [] // Video IDs in order of viewing
+    
+    // Category memory preferences
+    @Published var rememberHighlightsCategory: Bool = false {
+        didSet {
+            userDefaults.set(rememberHighlightsCategory, forKey: "remember_highlights_category")
+        }
+    }
+    @Published var rememberLiveCategory: Bool = false {
+        didSet {
+            userDefaults.set(rememberLiveCategory, forKey: "remember_live_category")
+        }
+    }
+    
+    // Last selected categories
+    @Published var lastHighlightsCategory: String = "all" {
+        didSet {
+            userDefaults.set(lastHighlightsCategory, forKey: "last_highlights_category")
+        }
+    }
+    @Published var lastLiveCategory: String = "all" {
+        didSet {
+            userDefaults.set(lastLiveCategory, forKey: "last_live_category")
+        }
+    }
+    
+    // Navigation state for comment history
+    @Published var navigateToVideoId: String? = nil
+    @Published var navigateToCommentId: String? = nil
+    @Published var shouldOpenComments: Bool = false
 
     private let userDefaults = UserDefaults.standard
     private let interactionsKey = "video_interactions"
     private let profileKey = "user_profile"
     private let historyKey = "view_history"
+    private let rememberHighlightsKey = "remember_highlights_category"
+    private let rememberLiveKey = "remember_live_category"
+    private let lastHighlightsKey = "last_highlights_category"
+    private let lastLiveKey = "last_live_category"
     private let maxLocalInteractions = 10
 
     private init() {
@@ -157,6 +190,7 @@ class LocalStorageService: ObservableObject {
         loadProfile()
         loadInteractions()
         loadHistory()
+        loadPreferences()
     }
 
     private func loadProfile() {
@@ -196,6 +230,43 @@ class LocalStorageService: ObservableObject {
 
     private func saveHistory() {
         userDefaults.set(viewHistory, forKey: historyKey)
+    }
+    
+    private func loadPreferences() {
+        rememberHighlightsCategory = userDefaults.bool(forKey: rememberHighlightsKey)
+        rememberLiveCategory = userDefaults.bool(forKey: rememberLiveKey)
+        lastHighlightsCategory = userDefaults.string(forKey: lastHighlightsKey) ?? "all"
+        lastLiveCategory = userDefaults.string(forKey: lastLiveKey) ?? "all"
+    }
+    
+    // MARK: - Category Memory Methods
+    func saveLastHighlightsCategory(_ category: String) {
+        lastHighlightsCategory = category
+    }
+    
+    func saveLastLiveCategory(_ category: String) {
+        lastLiveCategory = category
+    }
+    
+    func getLastHighlightsCategory() -> String {
+        return rememberHighlightsCategory ? lastHighlightsCategory : "all"
+    }
+    
+    func getLastLiveCategory() -> String {
+        return rememberLiveCategory ? lastLiveCategory : "all"
+    }
+    
+    // MARK: - Navigation Methods
+    func navigateToVideoWithComment(videoId: String, commentId: String) {
+        navigateToVideoId = videoId
+        navigateToCommentId = commentId
+        shouldOpenComments = true
+    }
+    
+    func clearNavigation() {
+        navigateToVideoId = nil
+        navigateToCommentId = nil
+        shouldOpenComments = false
     }
 
     // MARK: - API Sync (for future implementation)

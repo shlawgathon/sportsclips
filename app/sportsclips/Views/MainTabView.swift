@@ -9,6 +9,7 @@ import SwiftUI
 
 struct MainTabView: View {
     @State private var selectedTab = 0 // Start with All tab
+    @StateObject private var localStorage = LocalStorageService.shared
     
     var body: some View {
         ZStack {
@@ -54,6 +55,14 @@ struct MainTabView: View {
                     }
         }
         .preferredColorScheme(.dark)
+        .onChange(of: localStorage.navigateToVideoId) { _, videoId in
+            if videoId != nil {
+                // Switch to VideoFeedView tab (index 1)
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                    selectedTab = 1
+                }
+            }
+        }
     }
 }
 

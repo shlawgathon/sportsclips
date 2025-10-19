@@ -13,23 +13,25 @@ struct CommentHistoryView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Section header
-            HStack {
-                Text("Comments")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.white)
-                
-                Spacer()
-                
-                Text("\(comments.count)")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
+            // Section header - only show if there are comments
+            if !comments.isEmpty {
+                HStack {
+                    Text("Comments")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                    
+                    Spacer()
+                    
+                    Text("\(comments.count)")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
             
             if comments.isEmpty {
                 VStack(spacing: 16) {
-                    Image(systemName: "message.slash")
+                    Image(systemName: "bubble.left.and.bubble.right")
                         .font(.system(size: 40, weight: .light))
                         .foregroundColor(.white.opacity(0.5))
                     
@@ -83,11 +85,12 @@ struct CommentHistoryView: View {
 struct CommentHistoryRowItem: View {
     let comment: CommentHistoryItem
     let index: Int
+    @StateObject private var localStorage = LocalStorageService.shared
     
     var body: some View {
         Button(action: {
-            // Navigate back to video - you can implement navigation here
-            print("Navigate to video: \(comment.clip.id)")
+            // Navigate to video with comment highlighted
+            localStorage.navigateToVideoWithComment(videoId: comment.clip.id, commentId: comment.id)
         }) {
             VStack(alignment: .leading, spacing: 8) {
                 // Date and video title

@@ -13,6 +13,7 @@ struct LiveVideoCell: View {
     @ObservedObject var playerManager: VideoPlayerManager
     @Binding var selectedSport: VideoClip.Sport
     let onSportChange: (VideoClip.Sport) -> Void
+    let isLive: Bool
 
     @State private var isLiked = false
     @State private var commentText = ""
@@ -57,20 +58,23 @@ struct LiveVideoCell: View {
                         // Sport tag with LIVE indicator
                         HStack(spacing: 6) {
                             Circle()
-                                .fill(.red)
+                                .fill(isLive ? .red : .gray)
                                 .frame(width: 8, height: 8)
 
-                            // Show icon if it exists in SF Symbols, otherwise show sport name
-                            if UIImage(systemName: video.sport.icon) != nil {
-                                Image(systemName: video.sport.icon)
-                                    .font(.system(size: 13, weight: .medium))
-                            } else {
-                                Text(video.sport.rawValue)
-                                    .font(.system(size: 12, weight: .semibold))
+                            // Show icon if it exists in SF Symbols, otherwise show sport name (only when live)
+                            if isLive {
+                                if UIImage(systemName: video.sport.icon) != nil {
+                                    Image(systemName: video.sport.icon)
+                                        .font(.system(size: 13, weight: .medium))
+                                } else {
+                                    Text(video.sport.rawValue)
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
                             }
 
-                            Text("LIVE")
+                            Text(isLive ? "LIVE" : "OFFLINE")
                                 .font(.system(size: 11, weight: .bold))
+                                .lineLimit(1)
                         }
                         .foregroundColor(.white)
                         .padding(.horizontal, 10)
@@ -112,6 +116,7 @@ struct LiveVideoCell: View {
 
                                 Text(selectedSport == .all ? "All" : selectedSport.rawValue)
                                     .font(.system(size: 11, weight: .bold))
+                                    .lineLimit(1)
                             }
                         }
                         .foregroundColor(.white)

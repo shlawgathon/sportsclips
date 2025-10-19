@@ -45,8 +45,18 @@ struct VideoFeedView: View {
             sportFilterBar
         }
         .onAppear {
+            // Set initial sport based on user preference
+            let savedCategory = localStorage.getLastHighlightsCategory()
+            if let sport = VideoClip.Sport(rawValue: savedCategory) {
+                selectedSport = sport
+            }
             loadVideos()
             startTimeUpdateTimer()
+        }
+        .onChange(of: localStorage.navigateToVideoId) { _, videoId in
+            if let videoId = videoId {
+                handleNavigationToVideo(videoId: videoId)
+            }
         }
         .onChange(of: localStorage.interactions) { _, _ in
             handleLocalStorageChange()
@@ -166,7 +176,9 @@ struct VideoFeedView: View {
                                 isSelected: selectedSport == sport,
                                 action: {
                                     handleSportSelection(sport)
-                                }
+                                },
+                                currentVideoSport: filteredVideos.isEmpty ? nil : filteredVideos[currentIndex].sport,
+                                selectedSport: selectedSport
                             )
                         }
                     }
@@ -314,6 +326,9 @@ struct VideoFeedView: View {
 
         pausedVideos[video.id] = false
 
+        // Update game name for the "watch more" functionality
+        selectedGameName = extractGameName(from: video)
+
         // Check if we need to load more videos
         if index >= filteredVideos.count - 3 && !isLoadingMore {
             preloadMoreVideos()
@@ -345,13 +360,37 @@ struct VideoFeedView: View {
             playerManager.updatePreloadQueue(currentIndex: newIndex, clips: filteredVideos, count: 5)
             localStorage.recordView(videoId: currentVideo.id)
             pausedVideos[currentVideo.id] = false
+            
+            // Update game name for the "watch more" functionality
+            selectedGameName = extractGameName(from: currentVideo)
         }
     }
 
     private func handleSportSelection(_ sport: VideoClip.Sport) {
         print("🎬 Sport selected: \(sport.rawValue)")
         selectedSport = sport
+        localStorage.saveLastHighlightsCategory(sport.rawValue)
         filterVideos()
+    }
+    
+    private func handleNavigationToVideo(videoId: String) {
+        // Find the video index in the filtered videos
+        if let videoIndex = filteredVideos.firstIndex(where: { $0.id == videoId }) {
+            // Scroll to the video
+            currentIndex = videoIndex
+            
+            // If we need to open comments, we'll handle that in the video overlay
+            if localStorage.shouldOpenComments {
+                // The comment opening will be handled by the video overlay
+                // Clear the navigation state after a delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    localStorage.clearNavigation()
+                }
+            }
+        } else {
+            // Video not found in current filtered list, clear navigation
+            localStorage.clearNavigation()
+        }
     }
 
     private func handleGameTap(for video: VideoClip) {
@@ -711,36 +750,52 @@ struct SportBubble: View {
     let sport: VideoClip.Sport
     let isSelected: Bool
     let action: () -> Void
+    let currentVideoSport: VideoClip.Sport?
+    let selectedSport: VideoClip.Sport
 
     @State private var isPressed = false
+    @State private var previousSport: VideoClip.Sport? = nil
+    @State private var animationOpacity: Double = 1.0
+    
+    private var dynamicSportText: String {
+        if sport == .all {
+            if selectedSport != .all {
+                return "All"
+            }
+            else if let currentSport = currentVideoSport, currentSport != .all {
+                return "All - \(currentSport.rawValue)"
+            }
+        }
+        return sport.rawValue
+    }
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: sport.icon)
-                    .font(.system(size: 16, weight: .medium))
+                Image(systemName: sport.icon)  //   Remove SwiftUI prefix
+                    .imageScale(.medium)
                     .symbolEffect(.bounce, value: isSelected)
-                    .foregroundColor(sport == .all ? .red : (isSelected ? .white : .white.opacity(0.7)))
+                    .foregroundColor(sport == .all ? Color.red : (isSelected ? Color.white : Color.white.opacity(0.7)))
 
-                Text(sport.rawValue)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.7))
-                    .lineLimit(1) // Ensure text doesn't wrap
-                    .minimumScaleFactor(0.8) // Allow slight scaling for long text
+                Text(dynamicSportText)
+                    .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.7))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .opacity(animationOpacity)
+                    .frame(height: 16)
+                    .clipped()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(
                 ZStack {
-                    // Outer glow for selected state
                     if isSelected {
                         Capsule()
-                            .fill(.white.opacity(0.1))
+                            .fill(Color.white.opacity(0.1))  // Use consistent Color
                             .blur(radius: 6)
                             .scaleEffect(1.1)
                     }
 
-                    // Main capsule
                     Capsule()
                         .fill(isSelected ? .ultraThinMaterial : .thinMaterial)
                         .overlay(
@@ -748,8 +803,8 @@ struct SportBubble: View {
                                 .stroke(
                                     LinearGradient(
                                         colors: [
-                                            .white.opacity(isSelected ? 0.3 : 0.1),
-                                            .white.opacity(isSelected ? 0.15 : 0.05)
+                                            Color.white.opacity(isSelected ? 0.3 : 0.1),
+                                            Color.white.opacity(isSelected ? 0.15 : 0.05)
                                         ],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
@@ -758,13 +813,42 @@ struct SportBubble: View {
                                 )
                         )
                         .shadow(
-                            color: .black.opacity(isSelected ? 0.15 : 0.08),
+                            color: Color.black.opacity(isSelected ? 0.15 : 0.08),
                             radius: isSelected ? 6 : 3,
                             x: 0,
                             y: isSelected ? 3 : 1
                         )
                 }
             )
+        }
+        .onChange(of: currentVideoSport) { oldValue, newValue in
+            if sport == .all && oldValue != newValue && oldValue != nil && newValue != nil {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    animationOpacity = 0.0
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        animationOpacity = 1.0
+                    }
+                }
+            }
+        }
+        .onChange(of: selectedSport) { oldValue, newValue in
+            if sport == .all && oldValue != newValue {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    animationOpacity = 0.0
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        animationOpacity = 1.0
+                    }
+                }
+            }
+        }
+        .onAppear {
+            previousSport = currentVideoSport
         }
     }
 }

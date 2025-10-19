@@ -48,19 +48,14 @@ struct LiveView: View {
                                 // Sport tag with LIVE indicator (greyed)
                                 HStack(spacing: 6) {
                                     Circle()
-                                        .fill(.gray.opacity(0.6))
+                                        .fill(.gray.opacity(0.8))
                                         .frame(width: 8, height: 8)
 
-                                    if UIImage(systemName: selectedSport.icon) != nil {
-                                        Image(systemName: selectedSport.icon)
-                                            .font(.system(size: 13, weight: .medium))
-                                    } else {
-                                        Text(selectedSport.rawValue)
-                                            .font(.system(size: 12, weight: .semibold))
-                                    }
+                                    // No sport icon or name when offline
 
-                                    Text("LIVE")
+                                    Text("OFFLINE")
                                         .font(.system(size: 11, weight: .bold))
+                                        .lineLimit(1)
                                 }
                                 .foregroundColor(.white.opacity(0.6))
                                 .padding(.horizontal, 10)
@@ -101,6 +96,7 @@ struct LiveView: View {
                                             .font(.system(size: 13, weight: .medium))
                                         Text(selectedSport == .all ? "All" : selectedSport.rawValue)
                                             .font(.system(size: 11, weight: .bold))
+                                            .lineLimit(1)
                                     }
                                 }
                                 .foregroundColor(.white.opacity(0.9))
@@ -287,7 +283,8 @@ struct LiveView: View {
                                     onSportChange: { newSport in
                                         selectedSport = newSport
                                         refreshFeedForSport(newSport)
-                                    }
+                                    },
+                                    isLive: !filteredVideos.isEmpty
                                 )
                                 .containerRelativeFrame([.horizontal, .vertical])
                                 .id(index)
@@ -392,6 +389,11 @@ struct LiveView: View {
             }
         }
         .onAppear {
+            // Set initial sport based on user preference
+            let savedCategory = localStorage.getLastLiveCategory()
+            if let sport = VideoClip.Sport(rawValue: savedCategory) {
+                selectedSport = sport
+            }
             loadLiveVideos()
         }
     }
@@ -420,11 +422,60 @@ struct LiveView: View {
                     }
                 }
             } catch {
+                print("⚠️ Live videos API not ready yet: \(error)")
+                // For UI testing, create mock live videos when backend is not ready
                 await MainActor.run {
+                    self.liveVideos = createMockLiveVideos()
+                    // Filter by sport and randomize order when "All" is selected
+                    if self.selectedSport == .all {
+                        self.filteredVideos = self.liveVideos.shuffled()
+                    } else {
+                        self.filteredVideos = self.liveVideos.filter { $0.sport == self.selectedSport }
+                    }
                     self.isLoading = false
+
+                    // Auto-play first video
+                    if !filteredVideos.isEmpty {
+                        playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
+                        localStorage.recordView(videoId: filteredVideos[0].id)
+                    }
                 }
             }
         }
+    }
+    
+    // Mock data for UI testing when backend is not ready
+    private func createMockLiveVideos() -> [VideoClip] {
+        return [
+            VideoClip(
+                id: "mock-live-1",
+                videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                caption: "Mock Live Basketball Game - Lakers vs Warriors",
+                sport: .basketball,
+                likes: 1250,
+                comments: 89,
+                shares: 45,
+                createdAt: Date(),
+                s3Key: "mock-live-1.mp4",
+                title: "Lakers vs Warriors Live",
+                description: "Live basketball game between Lakers and Warriors",
+                gameId: "mock-game-1"
+            ),
+            VideoClip(
+                id: "mock-live-2", 
+                videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+                caption: "Mock Live Football Game - Patriots vs Chiefs",
+                sport: .football,
+                likes: 2100,
+                comments: 156,
+                shares: 78,
+                createdAt: Date(),
+                s3Key: "mock-live-2.mp4",
+                title: "Patriots vs Chiefs Live",
+                description: "Live football game between Patriots and Chiefs",
+                gameId: "mock-game-2"
+            )
+        ]
     }
 
     private func loadMoreVideos() {
@@ -446,7 +497,18 @@ struct LiveView: View {
                     self.isLoading = false
                 }
             } catch {
+                print("⚠️ Load more videos API not ready yet: \(error)")
+                // For UI testing, add more mock videos when backend is not ready
                 await MainActor.run {
+                    let moreMockVideos = createMockLiveVideos()
+                    self.liveVideos.append(contentsOf: moreMockVideos)
+                    // Filter by sport and randomize order when "All" is selected
+                    if self.selectedSport == .all {
+                        self.filteredVideos.append(contentsOf: moreMockVideos.shuffled())
+                    } else {
+                        let filteredNewVideos = moreMockVideos.filter { $0.sport == self.selectedSport }
+                        self.filteredVideos.append(contentsOf: filteredNewVideos)
+                    }
                     self.isLoading = false
                 }
             }
@@ -454,6 +516,9 @@ struct LiveView: View {
     }
 
     private func refreshFeedForSport(_ sport: VideoClip.Sport) {
+        // Save the selected category
+        localStorage.saveLastLiveCategory(sport.rawValue)
+        
         // Reset the video lists
         liveVideos = []
         filteredVideos = []

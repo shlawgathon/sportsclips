@@ -38,7 +38,18 @@ class VideoPlayerManager: ObservableObject {
             return existingPlayer
         }
 
-        let player = AVPlayer(url: URL(string: videoURL)!)
+        // Handle invalid or empty video URLs gracefully
+        guard !videoURL.isEmpty, let url = URL(string: videoURL) else {
+            print("⚠️ Invalid video URL for videoId: \(videoId), URL: '\(videoURL)'")
+            // Create a dummy player with a placeholder URL to prevent crashes
+            let dummyURL = URL(string: "https://example.com/dummy.mp4")!
+            let player = AVPlayer(url: dummyURL)
+            players[videoId] = player
+            player.actionAtItemEnd = .pause
+            return player
+        }
+
+        let player = AVPlayer(url: url)
         players[videoId] = player
 
         // Configure player for manual control (no auto-looping)

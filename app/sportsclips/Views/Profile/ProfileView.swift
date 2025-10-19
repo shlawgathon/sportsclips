@@ -12,6 +12,7 @@ import UIKit
 struct ProfileView: View {
     @StateObject private var localStorage = LocalStorageService.shared
     @State private var showingLogoutConfirmation = false
+    @State private var showingSettings = false
     @State private var isEditingName = false
     @State private var tempName: String = ""
     @State private var selectedItem: PhotosPickerItem?
@@ -31,28 +32,27 @@ struct ProfileView: View {
             VStack(spacing: 0) {
                 // Top section with profile info and logout button
                 VStack(spacing: 20) {
-                    // Logout button in top right
+                    // Settings button in top left, Logout button in top right
                     HStack {
+                        // Settings button (top left)
+                        Button(action: {
+                            showingSettings = true
+                        }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        
                         Spacer()
+                        
+                        // Logout button (top right)
                         Button(action: {
                             showingLogoutConfirmation = true
                         }) {
-                            VStack(spacing: 4) {
-                                Image(systemName: "rectangle.portrait.and.arrow.right")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.white)
-                                
-                                Text("Logout")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(.white)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(.red.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(.red.opacity(0.4), lineWidth: 1)
-                            )
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundColor(.white.opacity(0.8))
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
@@ -208,6 +208,9 @@ struct ProfileView: View {
                 }
             }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
         }
         .onChange(of: selectedItem) { newItem in
             guard let newItem else { return }

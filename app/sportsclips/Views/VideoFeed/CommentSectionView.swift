@@ -9,6 +9,7 @@ import SwiftUI
 
 struct CommentSectionView: View {
     let video: VideoClip
+    let highlightCommentId: String?
     @Environment(\.dismiss) private var dismiss
     private let apiService = APIService.shared
     @State private var comments: [CommentItem] = []
@@ -60,39 +61,55 @@ struct CommentSectionView: View {
     }
 
     private var commentsListView: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
-                if isLoading {
-                    ProgressView("Loading comments...")
-                        .foregroundColor(.white)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    if isLoading {
+                        ProgressView("Loading comments...")
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(.top, 35) // Moved up 15px
+                    } else if comments.isEmpty {
+                        VStack(spacing: 16) {
+                            Image(systemName: "message")
+                                .font(.system(size: 40))
+                                .foregroundColor(.gray)
+
+                            Text("No comments yet")
+                                .font(.headline)
+                                .foregroundColor(.white)
+
+                            Text("Be the first to comment!")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                        }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.top, 35) // Moved up 15px
-                } else if comments.isEmpty {
-                    VStack(spacing: 16) {
-                        Image(systemName: "message")
-                            .font(.system(size: 40))
-                            .foregroundColor(.gray)
-
-                        Text("No comments yet")
-                            .font(.headline)
-                            .foregroundColor(.white)
-
-                        Text("Be the first to comment!")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
+                    } else {
+                        ForEach(comments, id: \.id) { commentItem in
+                            CommentRowView(
+                                item: commentItem,
+                                isHighlighted: commentItem.id == highlightCommentId
+                            )
+                            .id(commentItem.id)
+                        }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.top, 35) // Moved up 15px
-                } else {
-                    ForEach(comments, id: \.id) { commentItem in
-                        CommentRowView(item: commentItem)
+                }
+                .padding(.horizontal)
+                .padding(.top)
+            }
+            .background(Color.black.opacity(0.9))
+            .onAppear {
+                // Scroll to highlighted comment after a short delay
+                if let highlightId = highlightCommentId {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        withAnimation(.easeInOut(duration: 0.8)) {
+                            proxy.scrollTo(highlightId, anchor: .center)
+                        }
                     }
                 }
             }
-            .padding(.horizontal)
-            .padding(.top)
         }
-        .background(Color.black.opacity(0.9))
     }
 
     private var commentInputView: some View {
@@ -177,6 +194,7 @@ struct CommentSectionView: View {
 
 struct CommentRowView: View {
     let item: CommentItem
+    let isHighlighted: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -214,6 +232,17 @@ struct CommentRowView: View {
             Spacer()
         }
         .padding(.vertical, 8)
+        .padding(.horizontal, isHighlighted ? 8 : 0)
+        .background(
+            isHighlighted ? 
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.blue.opacity(0.2))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.blue.opacity(0.5), lineWidth: 2)
+                ) : nil
+        )
+        .animation(.easeInOut(duration: 0.3), value: isHighlighted)
     }
 
     private func formatTimestamp(_ timestamp: Int64) -> String {

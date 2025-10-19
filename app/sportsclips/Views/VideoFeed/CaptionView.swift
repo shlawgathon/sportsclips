@@ -24,19 +24,6 @@ struct CaptionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Sport category
-            HStack(spacing: 8) {
-                // Always show icon for consistent spacing, but make it invisible if not needed
-                Image(systemName: video.sport.icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(video.sport == .all ? .clear : .white.opacity(0.8))
-
-                Text(video.sport.rawValue)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
-            }
-            .padding(.bottom, 8)
-
             // Title and description with expandable "see more/less"
             VStack(alignment: .leading, spacing: 4) {
                 // Show title if available

@@ -72,7 +72,12 @@ struct VideoOverlayView: View {
         }
         .padding(.trailing, 16) // Right padding for proper spacing from edge
         .sheet(isPresented: $showingComments) {
-            CommentSectionView(video: video)
+            CommentSectionView(video: video, highlightCommentId: localStorage.navigateToCommentId)
+        }
+        .onChange(of: localStorage.navigateToVideoId) { _, videoId in
+            if videoId == video.id && localStorage.shouldOpenComments {
+                showingComments = true
+            }
         }
         .onAppear {
             // Ensure comment count is properly initialized
