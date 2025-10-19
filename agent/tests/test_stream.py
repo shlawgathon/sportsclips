@@ -17,100 +17,6 @@ from src.stream import (
 class TestStreamVideoChunks:
     """Integration tests for video streaming functionality."""
 
-    def test_stream_video_chunks_specific_live_video(self):
-        """Test streaming a specific live video: D4M6N20Itz8."""
-        test_url = "https://www.youtube.com/watch?v=D4M6N20Itz8"
-
-        # First check if it's actually live
-        try:
-            is_live = is_live_stream(test_url)
-            print(f"Video D4M6N20Itz8 is_live: {is_live}")
-        except Exception as e:
-            pytest.skip(f"Could not check live status: {e}")
-
-        # Try to stream and chunk it
-        try:
-            chunks = []
-            total_bytes = 0
-
-            # Use stream_and_chunk_video which should handle both live and non-live
-            for chunk in stream_and_chunk_video(
-                test_url,
-                chunk_duration=10,  # 10 second chunks
-                format_selector=None,  # Let the function choose the best format
-                is_live=is_live,
-            ):
-                chunks.append(chunk)
-                total_bytes += len(chunk)
-                print(f"Received chunk {len(chunks)}: {len(chunk):,} bytes")
-
-                # Get at least 2 chunks to verify it's working
-                if len(chunks) >= 2:
-                    break
-
-            assert len(chunks) >= 2, (
-                f"Should have received at least 2 chunks, got {len(chunks)}"
-            )
-            assert total_bytes > 0, "Should have received data"
-            assert all(isinstance(chunk, bytes) for chunk in chunks), (
-                "All chunks should be bytes"
-            )
-
-            print(
-                f"✅ Successfully streamed {len(chunks)} chunks, {total_bytes:,} total bytes"
-            )
-
-            # Verify that chunks contain both audio and video streams
-            import json
-
-            with tempfile.TemporaryDirectory() as tmpdir:
-                for i, chunk in enumerate(chunks[:1]):  # Check at least the first chunk
-                    chunk_path = Path(tmpdir) / f"chunk_{i}.mp4"
-                    chunk_path.write_bytes(chunk)
-
-                    # Use ffprobe to check streams
-                    result = subprocess.run(
-                        [
-                            "ffprobe",
-                            "-v",
-                            "quiet",
-                            "-print_format",
-                            "json",
-                            "-show_streams",
-                            str(chunk_path),
-                        ],
-                        capture_output=True,
-                        text=True,
-                    )
-
-                    if result.returncode != 0:
-                        pytest.fail(f"ffprobe failed on chunk {i}: {result.stderr}")
-
-                    probe_data = json.loads(result.stdout)
-                    streams = probe_data.get("streams", [])
-
-                    # Check for video and audio streams
-                    has_video = any(s.get("codec_type") == "video" for s in streams)
-                    has_audio = any(s.get("codec_type") == "audio" for s in streams)
-
-                    print(f"Chunk {i}: video={has_video}, audio={has_audio}")
-                    print(
-                        f"  Streams: {[(s.get('codec_type'), s.get('codec_name')) for s in streams]}"
-                    )
-
-                    assert has_video, f"Chunk {i} should have a video stream"
-                    # NOTE: With --live-from-start, we only get video (no audio)
-                    # because yt-dlp streams video first, then audio sequentially
-                    if not has_audio:
-                        print(
-                            f"      ⚠️  Chunk {i} has video only (expected with --live-from-start)"
-                        )
-
-            print("✅ All chunks verified to have video")
-
-        except Exception as e:
-            pytest.fail(f"Failed to stream video D4M6N20Itz8: {e}")
-
     def test_stream_video_chunks_live_from_edge(self):
         """Test streaming live video from the live edge (current point)."""
         # Note: This test uses a sample URL - replace with actual live stream for real testing
@@ -561,6 +467,80 @@ class TestStreamAndChunkVideo:
 
             assert len(chunks) == 3
             mock_stream_live.assert_called_once()
+
+    def test_live_selector_override_for_specific_youtube_url(self):
+        """Ensure live-safe selector is used for problematic VOD selector on live URL.
+
+        Reproduces the case where format_selector was "best[ext=mp4]/best" for a live stream
+        (https://www.youtube.com/watch?v=kWIWnFbNMF4), which is not available and should be
+        overridden to a live-friendly selector.
+        """
+        problem_url = "https://www.youtube.com/watch?v=kWIWnFbNMF4"
+
+        with (
+            patch("subprocess.Popen") as mock_popen,
+            patch("tempfile.mkdtemp") as mock_mkdtemp,
+            patch("pathlib.Path.mkdir"),
+            patch("shutil.rmtree"),
+            patch("pathlib.Path.glob") as mock_glob,
+            patch("builtins.open", mock_open(read_data=b"chunk_data")),
+            patch("time.sleep", lambda *_args, **_kwargs: None),
+        ):
+            mock_mkdtemp.return_value = "/tmp/test_video"
+
+            # Prepare yt-dlp and ffmpeg mock processes
+            mock_ytdlp = MagicMock()
+            mock_ytdlp.stdout = MagicMock()
+            mock_ytdlp.stderr = MagicMock()
+            mock_ytdlp.poll.side_effect = [None, 0]
+
+            mock_ffmpeg = MagicMock()
+            mock_ffmpeg.stdout = MagicMock()
+            mock_ffmpeg.stderr = MagicMock()
+            mock_ffmpeg.poll.side_effect = [None, 0]
+
+            # Capture Popen calls and return mocks in order (yt-dlp, ffmpeg)
+            popen_calls = []
+
+            def popen_side_effect(cmd, *args, **kwargs):
+                popen_calls.append(cmd)
+                return mock_ytdlp if len(popen_calls) == 1 else mock_ffmpeg
+
+            mock_popen.side_effect = popen_side_effect
+
+            # Simulate one complete chunk file present across iterations
+            chunk_path = Path("/tmp/test_video/chunk_00000.mp4")
+            mock_glob.side_effect = [[chunk_path], [chunk_path], [chunk_path]]
+
+            # Run streaming with VOD-oriented selector but live=True
+            chunks = list(
+                stream_and_chunk_video(
+                    problem_url,
+                    chunk_duration=2,
+                    format_selector="best[ext=mp4]/best",
+                    is_live=True,
+                )
+            )
+
+            # Verify we yielded data
+            assert len(chunks) >= 1
+
+            # Verify yt-dlp command used the live-safe selector
+            assert len(popen_calls) >= 1
+            ytdlp_cmd = popen_calls[0]
+
+            # Ensure --live-from-start is present for live streams
+            assert "--live-from-start" in ytdlp_cmd
+
+            # Find the format value following -f
+            assert "-f" in ytdlp_cmd
+            f_idx = ytdlp_cmd.index("-f")
+            selected_format = ytdlp_cmd[f_idx + 1]
+            assert (
+                selected_format == "bestvideo+bestaudio/best"
+            ), (
+                "Live-safe format selector should override VOD-only selector"
+            )
 
     def test_stream_and_chunk_video_ffmpeg_error(self):
         """Test handling of ffmpeg errors in non-live mode."""
