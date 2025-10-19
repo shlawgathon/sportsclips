@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from ...llm import GeminiAgent
-from .prompt import TRIM_HIGHLIGHT_PROMPT, TRIM_HIGHLIGHT_TOOL
+from .prompt import (
+    TRIM_HIGHLIGHT_PROMPT,
+    TRIM_HIGHLIGHT_PROMPT_TEMPLATE,
+    TRIM_HIGHLIGHT_TOOL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +131,17 @@ class HighlightTrimmer:
             # Concatenate all chunks for analysis
             full_window_video = _concatenate_chunks(window_chunks)
 
+            # Build prompt with detection context if available
+            detection_context = ""
+            if "detection_reason" in metadata:
+                confidence = metadata.get("detection_confidence", "unknown")
+                reason = metadata.get("detection_reason", "")
+                detection_context = f"\nDetection Analysis:\n- Confidence: {confidence}\n- Reason: {reason}\n"
+
+            prompt = TRIM_HIGHLIGHT_PROMPT_TEMPLATE.format(
+                detection_context=detection_context
+            )
+
             # Save video to temp file for Gemini
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
                 temp_file.write(full_window_video)
@@ -136,7 +151,7 @@ class HighlightTrimmer:
                 # Ask Gemini which chunks to keep using function calling
                 response = await self.agent.generate_from_video(
                     video_input=temp_path,
-                    prompt=self.prompt,
+                    prompt=prompt,
                     tools=[TRIM_HIGHLIGHT_TOOL],
                 )
 

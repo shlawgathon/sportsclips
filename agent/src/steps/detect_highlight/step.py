@@ -74,6 +74,10 @@ class HighlightDetector:
                         f"(confidence: {confidence}, reason: {reason})"
                     )
 
+                    # Store detection details for downstream steps
+                    metadata["detection_confidence"] = confidence
+                    metadata["detection_reason"] = reason
+
                     return is_highlight
                 else:
                     # Fallback if function calling didn't work
@@ -209,18 +213,54 @@ async def detect_highlight_step(
         # Concatenate chunks for analysis
         window_video = _concatenate_chunks(window_chunks)
 
-        # Analyze with Gemini
-        detector = _get_detector()
-        is_highlight: bool = await detector.is_highlight(window_video, metadata)
+        # Create a temporary file for analysis
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
+            temp_file.write(window_video)
+            temp_path = temp_file.name
 
-        logger.info(
-            f"Detection result: {'HIGHLIGHT' if is_highlight else 'NO HIGHLIGHT'}"
-        )
+        try:
+            # Analyze with Gemini
+            detector = _get_detector()
+            response = await detector.agent.generate_from_video(
+                video_input=temp_path,
+                prompt=detector.prompt,
+                tools=[HIGHLIGHT_DETECTION_TOOL],
+            )
 
-        metadata["detection_method"] = "gemini_llm"
-        metadata["is_highlight"] = is_highlight
+            # Extract function call response
+            if (
+                isinstance(response, dict)
+                and response.get("name") == "report_highlight_detection"
+            ):
+                args = response.get("args", {})
+                is_highlight: bool = bool(args.get("is_highlight", False))
+                confidence = args.get("confidence", "unknown")
+                reason = args.get("reason", "")
 
-        return is_highlight, metadata
+                logger.info(
+                    f"Detection result: {'HIGHLIGHT' if is_highlight else 'NO HIGHLIGHT'} "
+                    f"(confidence: {confidence}, reason: {reason})"
+                )
+
+                metadata["detection_method"] = "gemini_llm"
+                metadata["is_highlight"] = is_highlight
+                metadata["detection_confidence"] = confidence
+                metadata["detection_reason"] = reason
+
+                return is_highlight, metadata
+            else:
+                # Fallback if function calling didn't work
+                logger.warning(f"Unexpected response format: {response}")
+                metadata["detection_method"] = "gemini_llm"
+                metadata["is_highlight"] = True
+                return True, metadata
+
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(temp_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file {temp_path}: {e}")
 
     except Exception as e:
         logger.error(f"Error in detect_highlight_step: {e}", exc_info=True)
