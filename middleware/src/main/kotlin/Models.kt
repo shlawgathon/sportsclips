@@ -315,6 +315,8 @@ class CommentService(private val database: MongoDatabase) {
     init {
         try { database.createCollection("comments") } catch (_: Exception) {}
         collection = database.getCollection("comments")
+        try { collection.createIndex(Indexes.ascending("userId")) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.ascending("createdAt")) } catch (_: Exception) {}
     }
 
     suspend fun add(comment: Comment): String = withContext(Dispatchers.IO) {
@@ -326,6 +328,10 @@ class CommentService(private val database: MongoDatabase) {
     suspend fun listByClip(clipId: String): List<Pair<String, Comment>> = withContext(Dispatchers.IO) {
         collection.find(Filters.eq("clipId", clipId)).map { it["_id"].toString() to Comment.fromDocument(it) }.toList()
     }
+
+    suspend fun listByUser(userId: String): List<Pair<String, Comment>> = withContext(Dispatchers.IO) {
+        collection.find(Filters.eq("userId", userId)).map { it["_id"].toString() to Comment.fromDocument(it) }.toList()
+    }
 }
 
 class LikeService(private val database: MongoDatabase) {
@@ -335,6 +341,8 @@ class LikeService(private val database: MongoDatabase) {
         try { database.createCollection("likes") } catch (_: Exception) {}
         collection = database.getCollection("likes")
         try { collection.createIndex(Indexes.compoundIndex(Indexes.ascending("clipId"), Indexes.ascending("userId")), IndexOptions().unique(true)) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.ascending("userId")) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.ascending("createdAt")) } catch (_: Exception) {}
     }
 
     suspend fun add(like: Like): String? = withContext(Dispatchers.IO) {
@@ -350,6 +358,10 @@ class LikeService(private val database: MongoDatabase) {
     suspend fun remove(clipId: String, userId: String): Boolean = withContext(Dispatchers.IO) {
         val result = collection.deleteOne(Filters.and(Filters.eq("clipId", clipId), Filters.eq("userId", userId)))
         result.deletedCount > 0
+    }
+
+    suspend fun listByUser(userId: String): List<Pair<String, Like>> = withContext(Dispatchers.IO) {
+        collection.find(Filters.eq("userId", userId)).map { it["_id"].toString() to Like.fromDocument(it) }.toList()
     }
 }
 
@@ -397,6 +409,10 @@ class ViewService(private val database: MongoDatabase) {
     suspend fun listViewedClipIds(userId: String, since: Long? = null): Set<String> = withContext(Dispatchers.IO) {
         val filter = if (since != null) Filters.and(Filters.eq("userId", userId), Filters.gte("viewedAt", since)) else Filters.eq("userId", userId)
         collection.find(filter).map { it["clipId"].toString() }.toSet()
+    }
+
+    suspend fun listByUser(userId: String): List<Pair<String, View>> = withContext(Dispatchers.IO) {
+        collection.find(Filters.eq("userId", userId)).map { it["_id"].toString() to View.fromDocument(it) }.toList()
     }
 }
 

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct CaptionView: View {
     let video: VideoClip
+    let gameName: String
     let onGameTap: () -> Void
     let showControls: Bool
     let currentTime: Double
@@ -73,7 +74,7 @@ struct CaptionView: View {
                     // Fixed height container to prevent caption shifting
                     ZStack {
                         // Game bubble (always present, animated opacity)
-                        GameBubble(gameName: extractGameName(from: video)) {
+                        GameBubble(gameName: gameName) {
                             onGameTap()
                         }
                         .opacity(showControls ? 0 : 1)
@@ -174,7 +175,7 @@ struct CaptionView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16) // Keep horizontal padding for caption text
         .padding(.top, 8)         // Further reduced top padding for even spacing
-        .padding(.bottom, 8)      // Reduced bottom padding to move controls down
+        .padding(.bottom, 0)      // Align bottom with GameBubble to match right-side buttons
         .background(
             ZStack {
                 // Sticky background with stronger opacity
@@ -203,43 +204,7 @@ struct CaptionView: View {
     }
 
     private func extractGameName(from video: VideoClip) -> String {
-        // Try to extract game name from title first, then description
-        let textToAnalyze = video.title ?? video.description ?? video.caption
-
-        // Look for common game patterns
-        let lowercasedText = textToAnalyze.lowercased()
-
-        // Check for specific game types
-        if lowercasedText.contains("championship") || lowercasedText.contains("final") {
-            return "Championship Game"
-        } else if lowercasedText.contains("playoff") {
-            return "Playoff Game"
-        } else if lowercasedText.contains("semifinal") {
-            return "Semifinal"
-        } else if lowercasedText.contains("quarterfinal") {
-            return "Quarterfinal"
-        } else if lowercasedText.contains("derby") {
-            return "Derby Match"
-        } else if lowercasedText.contains("classic") {
-            return "Classic Match"
-        }
-
-        // Extract from title if available
-        if let title = video.title, !title.isEmpty {
-            let words = title.components(separatedBy: " ")
-            if words.count >= 2 {
-                return "\(words[0]) \(words[1])"
-            }
-            return title
-        }
-
-        // Fallback to first few words of description
-        let words = textToAnalyze.components(separatedBy: " ")
-        if words.count >= 2 {
-            return "\(words[0]) \(words[1])"
-        }
-
-        return "Game Highlights"
+        return gameName;
     }
 
     private func formatTime(_ time: Double) -> String {

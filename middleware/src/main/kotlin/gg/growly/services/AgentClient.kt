@@ -30,7 +30,9 @@ class AgentClient(application: Application) {
 
     // Gate to ensure only one processVideo request is allowed to proceed
     // until it receives a first response from the agent.
-    private val startGate = Semaphore(5)
+    private val startGate = Semaphore(
+        Env.getRequired("SEMAPHORE_MAX").toInt()
+    )
 
     @Serializable
     data class SnippetMessage(
@@ -52,10 +54,22 @@ class AgentClient(application: Application) {
         val description: String? = null
     )
 
+    @Serializable
+    data class LiveChunkMeta(
+        val src_video_url: String,
+        val chunk_number: Int,
+        val format: String,
+        val audio_sample_rate: Int,
+        val commentary_length_bytes: Long,
+        val video_length_bytes: Long,
+        val num_chunks_processed: Int
+    )
+
     suspend fun processVideo(
         sourceUrl: String,
         isLive: Boolean,
-        onSnippet: suspend (bytes: ByteArray, title: String?, description: String?) -> Unit
+        onSnippet: suspend (bytes: ByteArray, title: String?, description: String?) -> Unit,
+        onLiveChunk: (bytes: ByteArray, meta: LiveChunkMeta) -> Unit = { _, _ -> }
     ) {
         // Acquire the gate before starting the websocket. Other callers will suspend
         // here until we receive at least one response (or error/close) from the agent.
@@ -130,6 +144,28 @@ class AgentClient(application: Application) {
                                         val msg = try { element.jsonObject["message"]?.jsonPrimitive?.content } catch (t: Throwable) { null }
                                         log.warn("[AgentClient] error message from agent: ${msg ?: "<none>"}")
                                         break
+                                    }
+                                    "live_commentary_chunk" -> {
+                                        // First chunk also releases the gate if not yet released
+                                        releaseGateIfNeeded()
+                                        val data = element.jsonObject["data"] as? JsonElement
+                                        if (data == null) {
+                                            log.warn("[AgentClient] 'live_commentary_chunk' missing 'data' field: $txt")
+                                        } else {
+                                            val base64 = data.jsonObject["video_data"]?.jsonPrimitive?.content
+                                            val metaEl = data.jsonObject["metadata"]
+                                            if (base64 == null || metaEl == null) {
+                                                log.warn("[AgentClient] 'live_commentary_chunk' missing fields: $txt")
+                                            } else {
+                                                try {
+                                                    val bytes = Base64.getDecoder().decode(base64)
+                                                    val meta = Json.decodeFromJsonElement(LiveChunkMeta.serializer(), metaEl)
+                                                    onLiveChunk(bytes, meta)
+                                                } catch (t: Throwable) {
+                                                    log.warn("[AgentClient] Failed to decode live chunk: ${t.message}")
+                                                }
+                                            }
+                                        }
                                     }
                                     else -> {
                                         // Unknown message still counts as a response; release once.

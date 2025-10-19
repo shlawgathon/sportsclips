@@ -20,6 +20,18 @@ class VideoPlayerManager: ObservableObject {
 
     private init() {}
 
+    // MARK: - Disk-backed playback helpers
+    private func prepareLocalItem(videoURL: String, videoId: String) async -> AVPlayerItem? {
+        guard let remote = URL(string: videoURL) else { return nil }
+        do {
+            let local = try await VideoCacheManager.shared.fetchToDisk(id: videoId, remoteURL: remote)
+            return AVPlayerItem(url: local)
+        } catch {
+            print("VideoPlayerManager failed to cache video (\(videoId)): \(error)")
+            return nil
+        }
+    }
+
     func getPlayer(for videoURL: String, videoId: String) -> AVPlayer {
         // Use videoId as key to ensure each video has its own player instance
         if let existingPlayer = players[videoId] {
@@ -56,12 +68,18 @@ class VideoPlayerManager: ObservableObject {
             }
         }
 
-        let player = AVPlayer(url: URL(string: videoURL)!)
-        players[videoClip.id] = player
+        // Prepare local cached item
+        let player = AVPlayer()
+        if let item = await prepareLocalItem(videoURL: videoURL, videoId: videoClip.id) {
+            player.replaceCurrentItem(with: item)
+        } else if let url = URL(string: videoURL) {
+            // Fallback to remote if cache failed
+            player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        }
 
+        players[videoClip.id] = player
         // Configure player for manual control (no auto-looping)
         player.actionAtItemEnd = .pause
-
         return player
     }
 
@@ -71,11 +89,28 @@ class VideoPlayerManager: ObservableObject {
 
         let player = getPlayer(for: videoURL, videoId: videoId)
         currentActiveVideoId = videoId
-        print("🎬 VideoPlayerManager playing video: \(videoId)")
-        player.play()
+        print("🎬 VideoPlayerManager preparing disk playback for: \(videoId)")
 
-        // Start background task to keep video playing
-        startBackgroundTask()
+        // Replace item with local cached file, then play
+        Task { [weak self] in
+            guard let self else { return }
+            if let item = await self.prepareLocalItem(videoURL: videoURL, videoId: videoId) {
+                player.replaceCurrentItem(with: item)
+                print("🎬 VideoPlayerManager playing from disk: \(videoId)")
+                player.play()
+                // Start background task to keep video playing
+                self.startBackgroundTask()
+            } else {
+                // Fallback: attempt to play remote to avoid a blank UI
+                print("🎬 Fallback to remote stream for: \(videoId)")
+                if let url = URL(string: videoURL) {
+                    let remoteItem = AVPlayerItem(url: url)
+                    player.replaceCurrentItem(with: remoteItem)
+                    player.play()
+                    self.startBackgroundTask()
+                }
+            }
+        }
     }
 
     /// Play video from VideoClip, fetching presigned URL if needed
@@ -190,6 +225,31 @@ class VideoPlayerManager: ObservableObject {
             print("🎬 Ending background task: \(backgroundTask.rawValue)")
             UIApplication.shared.endBackgroundTask(backgroundTask)
             backgroundTask = .invalid
+        }
+    }
+
+    // MARK: - Prefetch Management
+
+    func updatePreloadQueue(currentIndex: Int, clips: [VideoClip], count: Int = 5) {
+        guard !clips.isEmpty else { return }
+        let start = max(0, currentIndex + 1)
+        let end = min(clips.count, start + count)
+        let nextClips = Array(clips[start..<end])
+        Task {
+            var items: [(id: String, url: URL)] = []
+            for clip in nextClips {
+                var urlStr = clip.videoURL
+                if urlStr.isEmpty {
+                    // Attempt to fetch presigned URL
+                    if let fetched = try? await clip.fetchVideoURL() { urlStr = fetched }
+                }
+                if let u = URL(string: urlStr), !urlStr.isEmpty {
+                    items.append((clip.id, u))
+                }
+            }
+            await MainActor.run {
+                VideoCacheManager.shared.prefetch(next: items, count: count)
+            }
         }
     }
 

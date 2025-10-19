@@ -12,7 +12,7 @@ struct LiveCommentsView: View {
     let liveId: String
     @StateObject private var commentService = LiveCommentService.shared
     @State private var visibleComments: [LiveComment] = []
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(visibleComments.suffix(3)) { comment in
@@ -26,12 +26,18 @@ struct LiveCommentsView: View {
         }
         .onDisappear {
             commentService.stopCommentStream()
+            visibleComments.removeAll()
+        }
+        .onChange(of: liveId) { newId in
+            commentService.stopCommentStream()
+            visibleComments.removeAll()
+            commentService.startCommentStream(for: newId)
         }
         .onReceive(commentService.$comments) { comments in
             updateVisibleComments(from: comments)
         }
     }
-    
+
     private func updateVisibleComments(from comments: [LiveComment]) {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
             // Show the most recent 3 comments, with newest at bottom
@@ -42,21 +48,21 @@ struct LiveCommentsView: View {
 
 struct CommentBubble: View {
     let comment: LiveComment
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Text(comment.username)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(comment.isOwnComment ? .blue : .white.opacity(0.9))
-                
+
                 if comment.isOwnComment {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 8))
                         .foregroundColor(.blue)
                 }
             }
-            
+
             Text(comment.message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.white)
@@ -80,7 +86,7 @@ struct CommentBubble: View {
 #Preview {
     ZStack {
         Color.black.ignoresSafeArea()
-        
+
         VStack {
             Spacer()
             HStack {

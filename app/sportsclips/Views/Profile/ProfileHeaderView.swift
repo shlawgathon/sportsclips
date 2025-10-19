@@ -64,7 +64,7 @@ struct ProfileHeaderView: View {
             }
             .padding(.horizontal, 20)
         }
-        .padding(.top, 60)
+        .padding(.top, 45) // Moved up 15px
         .padding(.bottom, 30)
     }
 }
@@ -85,7 +85,7 @@ struct StatCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .regularGlass(cornerRadius: 16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
     
     private func formatCount(_ count: Int) -> String {

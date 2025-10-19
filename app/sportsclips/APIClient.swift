@@ -24,6 +24,8 @@ struct Clip: Codable {
 struct CommentItem: Codable {
     let id: String
     let postedByUsername: String
+    let postedByDisplayName: String?
+    let postedByProfilePictureBase64: String?
     let comment: Comment
 }
 
@@ -43,6 +45,31 @@ struct RecommendationItem: Codable {
     let id: String
     let score: Double
     let clip: Clip
+}
+
+// MARK: - History DTOs
+struct ClipDTO: Codable {
+    let id: String
+    let clip: Clip
+}
+
+struct ViewHistoryItem: Codable {
+    let id: String
+    let viewedAt: Int64
+    let clip: ClipDTO
+}
+
+struct LikeHistoryItem: Codable {
+    let id: String
+    let likedAt: Int64
+    let clip: ClipDTO
+}
+
+struct CommentHistoryItem: Codable {
+    let id: String
+    let text: String
+    let commentedAt: Int64
+    let clip: ClipDTO
 }
 
 final class APIClient {
@@ -147,6 +174,7 @@ final class APIClient {
     func getMe() async throws -> MeResponse {
         try await request("/user/me", response: MeResponse.self)
     }
+    // {"detail":"The request body is not valid JSON, or some arguments were not specified properly. In particular, Error for argument '79': JSON decode error"}
     func updateUserProfile(displayName: String? = nil, profilePictureBase64: String? = nil) async throws -> MeResponse {
         try await request("/user/profile", method: "POST", body: UpdateProfileRequest(displayName: displayName, profilePictureBase64: profilePictureBase64), response: MeResponse.self)
     }
@@ -162,6 +190,10 @@ final class APIClient {
 
     func listLives() async throws -> [LiveListItem] {
         try await request("/live", response: [LiveListItem].self)
+    }
+
+    func listLiveVideos() async throws -> [LiveListItem] {
+        try await request("/live-videos", response: [LiveListItem].self)
     }
 
     func getLive(id: String) async throws -> LiveVideo {
@@ -347,6 +379,19 @@ final class APIClient {
         try await request("/clips/\(clipId)/recommendations", response: [RecommendationItem].self)
     }
 
+    // MARK: - User History
+    func viewHistory(userId: String) async throws -> [ViewHistoryItem] {
+        try await request("/users/\(userId)/history/views", response: [ViewHistoryItem].self)
+    }
+
+    func likeHistory(userId: String) async throws -> [LikeHistoryItem] {
+        try await request("/users/\(userId)/history/likes", response: [LikeHistoryItem].self)
+    }
+
+    func commentHistory(userId: String) async throws -> [CommentHistoryItem] {
+        try await request("/users/\(userId)/history/comments", response: [CommentHistoryItem].self)
+    }
+
     // MARK: - Games
 
     struct CreateGameRequest: Encodable {
@@ -364,8 +409,8 @@ final class APIClient {
         try await request("/games", response: [GameListItem].self)
     }
 
-    func getGame(gameId: String) async throws -> GameListItem {
-        try await request("/games/\(gameId)", response: GameListItem.self)
+    func getGame(gameId: String) async throws -> LiveGame {
+        try await request("/games/\(gameId)", response: LiveGame.self)
     }
 
     // MARK: - Catalog
@@ -378,6 +423,13 @@ final class APIClient {
 // MARK: - Shared Instance
 extension APIClient {
     static let shared = APIClient(baseURL: URL(string: "https://middleware.liftgate.io")!)
+
+    func baseWebSocketURL() -> URL {
+        var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        if comps.scheme == "https" { comps.scheme = "wss" }
+        else if comps.scheme == "http" { comps.scheme = "ws" }
+        return comps.url ?? baseURL
+    }
 }
 
 // Helper to encode unknown Encodable at runtime

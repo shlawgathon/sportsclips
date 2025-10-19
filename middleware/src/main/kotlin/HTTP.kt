@@ -23,7 +23,12 @@ fun Application.configureHTTP()
         }
     }
 
+    // Enable server WebSockets for live video streaming bridge
+    install(io.ktor.server.websocket.WebSockets)
+
     routing {
         liveRoutes()
+        liveVideoRoutes()
+        liveCommentsSocketRoutes()
     }
 }

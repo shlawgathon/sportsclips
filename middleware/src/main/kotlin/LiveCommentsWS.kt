@@ -1,0 +1,109 @@
+import io.ktor.server.application.*
+import io.ktor.server.routing.*
+import io.ktor.server.websocket.*
+import io.ktor.websocket.*
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import java.util.concurrent.ConcurrentHashMap
+
+object LiveCommentsWSHub {
+    private val sessions = ConcurrentHashMap<String, MutableSet<DefaultWebSocketServerSession>>()
+
+    fun register(clipId: String, session: DefaultWebSocketServerSession) {
+        val set = sessions.computeIfAbsent(clipId) { ConcurrentHashMap.newKeySet() }
+        set.add(session)
+    }
+
+    fun unregister(session: DefaultWebSocketServerSession) {
+        sessions.values.forEach { it.remove(session) }
+    }
+
+    suspend fun broadcastComment(comment: LiveComment) {
+        val set = sessions[comment.clipId] ?: return
+        val json = """{"type":"comment","data":${commentJson(comment)}}"""
+        for (sess in set) {
+            try { sess.send(Frame.Text(json)) } catch (_: Throwable) {}
+        }
+    }
+
+    suspend fun broadcastViewerCount(clipId: String) {
+        val set = sessions[clipId] ?: return
+        val count = LiveHub.viewerCount(clipId)
+        val json = """{"type":"viewer_count","data":{"clipId":"$clipId","viewers":$count}}"""
+        for (sess in set) {
+            try { sess.send(Frame.Text(json)) } catch (_: Throwable) {}
+        }
+    }
+}
+
+fun Route.liveCommentsSocketRoutes() {
+    webSocket("/ws/live-comments/{clipId}") {
+        val app = call.application
+        val log = app.log
+        val clipId = call.parameters["clipId"]
+        if (clipId.isNullOrBlank()) {
+            send(Frame.Text("{" +
+                "\"type\":\"error\",\"message\":\"Missing clipId\"}"))
+            close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "missing clipId"))
+            return@webSocket
+        }
+        LiveCommentsWSHub.register(clipId, this)
+        try {
+            // send init payload: latest comments + viewer count
+            val comments = LiveHub.latestComments(clipId, limit = 20, afterTs = null)
+            val commentsJson = comments.joinToString(prefix = "[", postfix = "]") { commentJson(it) }
+            val viewers = LiveHub.viewerCount(clipId)
+            val initJson = """{"type":"init","data":{"comments":$commentsJson,"viewer_count":$viewers}}"""
+            send(Frame.Text(initJson))
+
+            // listen for messages from client
+            for (frame in incoming) {
+                if (frame is Frame.Text) {
+                    val txt = frame.readText()
+                    if (txt.contains("\"type\":\"post_comment\"")) {
+                        // crude parse for minimal change
+                        val userId = regexExtract(txt, "\\\"userId\\\":\\\"(.*?)\\\"") ?: "anon"
+                        val username = regexExtract(txt, "\\\"username\\\":\\\"(.*?)\\\"") ?: "anon"
+                        val message = regexExtract(txt, "\\\"message\\\":\\\"(.*?)\\\"") ?: ""
+                        val nowSec = System.currentTimeMillis() / 1000
+                        val comment = LiveComment(
+                            id = java.util.UUID.randomUUID().toString(),
+                            clipId = clipId,
+                            userId = userId,
+                            username = username,
+                            message = message,
+                            timestampEpochSec = nowSec
+                        )
+                        LiveHub.addComment(clipId, comment)
+                        LiveCommentsWSHub.broadcastComment(comment)
+                    } else if (frame is Frame.Close) {
+                        break
+                    }
+                } else if (frame is Frame.Close) {
+                    break
+                }
+            }
+        } catch (e: ClosedReceiveChannelException) {
+            // client closed
+        } catch (t: Throwable) {
+            log.debug("[LiveCommentsWS] error: ${t.message}")
+        } finally {
+            LiveCommentsWSHub.unregister(this)
+            try { close() } catch (_: Exception) {}
+        }
+    }
+}
+
+private fun commentJson(c: LiveComment): String = buildString {
+    append('{')
+    append("\"id\":\"${c.id}\",")
+    append("\"clipId\":\"${c.clipId}\",")
+    append("\"userId\":\"${c.userId}\",")
+    append("\"username\":\"${c.username.replace("\"","\\\"")}\",")
+    append("\"message\":\"${c.message.replace("\"","\\\"")}\",")
+    append("\"timestampEpochSec\":${c.timestampEpochSec}")
+    append('}')
+}
+
+private fun regexExtract(text: String, pattern: String): String? {
+    return Regex(pattern).find(text)?.groupValues?.getOrNull(1)
+}

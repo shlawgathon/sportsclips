@@ -66,7 +66,7 @@ struct CommentSectionView: View {
                     ProgressView("Loading comments...")
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.top, 50)
+                        .padding(.top, 35) // Moved up 15px
                 } else if comments.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "message")
@@ -82,10 +82,10 @@ struct CommentSectionView: View {
                             .foregroundColor(.gray)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.top, 50)
+                    .padding(.top, 35) // Moved up 15px
                 } else {
                     ForEach(comments, id: \.id) { commentItem in
-                        CommentRowView(comment: commentItem.comment, postedByUsername: commentItem.postedByUsername)
+                        CommentRowView(item: commentItem)
                     }
                 }
             }
@@ -176,8 +176,7 @@ struct CommentSectionView: View {
 }
 
 struct CommentRowView: View {
-    let comment: Comment
-    let postedByUsername: String
+    let item: CommentItem
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -186,7 +185,7 @@ struct CommentRowView: View {
                 .fill(Color.blue.gradient)
                 .frame(width: 36, height: 36)
                 .overlay(
-                    Text(String(comment.userId.prefix(1)).uppercased())
+                    Text(String(item.comment.userId.prefix(1)).uppercased())
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
                 )
@@ -194,19 +193,19 @@ struct CommentRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Username and timestamp
                 HStack {
-                    Text(postedByUsername)
+                    Text(item.postedByUsername)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
 
                     Spacer()
 
-                    Text(formatTimestamp(comment.createdAt))
+                    Text(formatTimestamp(item.comment.createdAt))
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
                 }
 
                 // Comment text
-                Text(comment.text)
+                Text(item.comment.text)
                     .font(.system(size: 14))
                     .foregroundColor(.white)
                     .fixedSize(horizontal: false, vertical: true)

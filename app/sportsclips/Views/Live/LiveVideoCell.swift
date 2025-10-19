@@ -212,21 +212,42 @@ struct LiveVideoCell: View {
                                 .frame(maxHeight: 180)
                         }
 
-                        // Live summary with expand/collapse functionality
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "livephoto")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.red)
+                        // Live summary with expand/collapse functionality - all in one line
+                        let liveSummary = generateLiveSummary(for: video)
+                        let firstSentence = extractFirstSentence(from: liveSummary)
+                        // No need for maxWidth calculation with fade-out effect
+                        
+                        HStack(alignment: .bottom, spacing: 6) {
+                            Image(systemName: "livephoto")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.red)
 
-                                Text("Live Summary")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.white.opacity(0.9))
+                            Text("Live Summary")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.9))
 
-                                Text("-")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.6))
+                            Text("-")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.white.opacity(0.6))
 
+                            Text(firstSentence)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .mask(
+                                    LinearGradient(
+                                        gradient: Gradient(stops: [
+                                            .init(color: .black, location: 0.0),
+                                            .init(color: .black, location: 0.7),
+                                            .init(color: .clear, location: 1.0)
+                                        ]),
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                            
+                            if firstSentence.count > 30 { // Show "see more..." if text is long enough
                                 Button(action: {
                                     withAnimation(.easeInOut(duration: 0.3)) {
                                         isSummaryExpanded.toggle()
@@ -237,30 +258,29 @@ struct LiveVideoCell: View {
                                         .foregroundColor(.white.opacity(0.8))
                                         .underline()
                                 }
+                            }
 
-                                Spacer()
+                            Spacer()
 
-                                // Hide comments button
-                                Button(action: {
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        showComments.toggle()
-                                    }
-                                }) {
-                                    Image(systemName: showComments ? "eye.slash" : "eye")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.6))
+                            // Hide comments button
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    showComments.toggle()
                                 }
+                            }) {
+                                Image(systemName: showComments ? "eye.slash" : "eye")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.6))
                             }
-
-                            // Expanded summary content
-                            if isSummaryExpanded {
-                                let liveSummary = generateLiveSummary(for: video)
-                                Text(liveSummary)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.white)
-                                    .multilineTextAlignment(.leading)
-                                    .padding(.top, 4)
-                            }
+                        }
+                        
+                        // Expanded summary content
+                        if isSummaryExpanded {
+                            Text(liveSummary)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.leading)
+                                .padding(.top, 4)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -318,7 +338,7 @@ struct LiveVideoCell: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
-                    .padding(.bottom, 88) // Same gap as highlights page
+                    .padding(.bottom, 90) // Exactly 10px gap to menu bar
                     .background(
                         // Add a subtle background to ensure visibility
                         Rectangle()
@@ -378,7 +398,7 @@ struct LiveVideoCell: View {
                                     )
                             )
                             .padding(.leading, 16)
-                            .padding(.top, 100) // Position below the top bar
+                            .padding(.top, 90) // Position below the top bar (moved up 15px)
 
                             Spacer()
                         }
@@ -556,6 +576,12 @@ struct LiveVideoCell: View {
 
         return baseSummary + sportDetails
     }
+    
+    private func extractFirstSentence(from text: String) -> String {
+        let sentences = text.components(separatedBy: ". ")
+        return sentences.first ?? text
+    }
+    
 
 }
 
