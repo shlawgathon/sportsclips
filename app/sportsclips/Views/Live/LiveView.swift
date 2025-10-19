@@ -11,6 +11,7 @@ struct LiveView: View {
     private let apiService = APIService.shared
     @StateObject private var playerManager = VideoPlayerManager.shared
     @StateObject private var localStorage = LocalStorageService.shared
+    private let liveVideoManager = LiveVideoManager.shared
     @State private var liveVideos: [VideoClip] = []
     @State private var filteredVideos: [VideoClip] = []
     @State private var currentIndex = 0
@@ -251,15 +252,37 @@ struct LiveView: View {
                                 .containerRelativeFrame([.horizontal, .vertical])
                                 .id(index)
                                     .onAppear {
+                                        // Pause all videos first to prevent audio overlap
+                                        playerManager.pauseAllVideos()
+                                        liveVideoManager.pauseAllLiveVideos()
+                                        
                                         currentIndex = index
-                                        // Do not attempt URL-based playback for live items; LiveVideoPlayerView handles WebSocket streaming
-                                        if (video.gameId == nil) || (video.gameId?.isEmpty == true) {
-                                            playerManager.playVideo(for: video.videoURL, videoId: video.id)
-                                        }
                                         localStorage.recordView(videoId: video.id)
 
                                         if index >= filteredVideos.count - 2 {
                                             loadMoreVideos()
+                                        }
+                                        
+                                        // Preload and play video with proper timing
+                                        Task {
+                                            // Do not attempt URL-based playback for live items; LiveVideoPlayerView handles WebSocket streaming
+                                            if (video.gameId == nil) || (video.gameId?.isEmpty == true) {
+                                                // Preload the player first to ensure it's ready
+                                                _ = await playerManager.getPlayer(for: video)
+                                                
+                                                // Small delay to ensure LiveVideoPlayerView is ready
+                                                try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                                                
+                                                await MainActor.run {
+                                                    playerManager.playVideo(for: video.videoURL, videoId: video.id)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .onDisappear {
+                                        // Ensure this video is paused when it disappears
+                                        if (video.gameId == nil) || (video.gameId?.isEmpty == true) {
+                                            playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
                                         }
                                     }
                             }
@@ -353,7 +376,20 @@ struct LiveView: View {
                 ))
             }
         }
+        .onTapGesture {
+            // Record user interaction to enable autoplay
+            playerManager.recordUserInteraction()
+        }
         .onAppear {
+            // Check if user is logged in before doing anything
+            guard localStorage.isUserLoggedIn() else {
+                print("🔴 BLOCKED: LiveView blocked - user not logged in")
+                return
+            }
+            
+            // Enable autoplay from the start
+            playerManager.forceAutoplay()
+            
             // Set initial sport based on user preference
             let savedCategory = localStorage.getLastLiveCategory()
             if let sport = VideoClip.Sport(rawValue: savedCategory) {
@@ -388,10 +424,18 @@ struct LiveView: View {
                         print("[LiveView][INFO] live id=\(v.id) title=\(title) src=\(src) desc=\(desc.prefix(120))")
                     }
 
-                    // Auto-play first video (non-live only; live playback handled in LiveVideoPlayerView)
+                    // Preload and auto-play first video (non-live only; live playback handled in LiveVideoPlayerView)
                     if let first = filteredVideos.first {
                         if (first.gameId == nil) || (first.gameId?.isEmpty == true) {
-                            playerManager.playVideo(for: first.videoURL, videoId: first.id)
+                            // Preload the first video to ensure it's ready
+                            Task {
+                                _ = await playerManager.getPlayer(for: first)
+                                await MainActor.run {
+                                    // Record initial interaction for autoplay
+                                    playerManager.recordUserInteraction()
+                                    playerManager.playVideo(for: first.videoURL, videoId: first.id)
+                                }
+                            }
                         }
                         localStorage.recordView(videoId: first.id)
                     }

@@ -108,8 +108,16 @@ class LocalStorageService: ObservableObject {
         saveProfile()
         forceRefresh()
     }
+    
+    func isUserLoggedIn() -> Bool {
+        return userProfile?.isLoggedIn == true
+    }
 
     func logout() {
+        // Force stop all video playback before logging out
+        VideoPlayerManager.shared.forceStopAllPlayback()
+        LiveVideoManager.shared.forceStopAllLivePlayback()
+        
         userProfile = nil
         saveProfile()
     }

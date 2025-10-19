@@ -36,6 +36,12 @@ struct GameClipsView: View {
             headerView
         }
         .onAppear {
+            // Check if user is logged in before doing anything
+            guard localStorage.isUserLoggedIn() else {
+                print("🔴 BLOCKED: GameClipsView blocked - user not logged in")
+                return
+            }
+            
             loadGameDetails()
             loadGameClips()
             startTimeUpdateTimer()
@@ -149,11 +155,11 @@ struct GameClipsView: View {
         )
         .simultaneousGesture(
             TapGesture(count: 1)
-            .onEnded { _ in
-                if !(doubleTapInProgress[video.id] ?? false) {
-                    handleSingleTap(for: video)
+                .onEnded { _ in
+                    if !(doubleTapInProgress[video.id] ?? false) {
+                        handleSingleTap(for: video)
+                    }
                 }
-            }
         )
         .simultaneousGesture(
             TapGesture(count: 2)
@@ -304,6 +310,13 @@ struct GameClipsView: View {
     // MARK: - Event Handlers
     private func handleVideoAppear(video: VideoClip, index: Int) {
         currentIndex = index
+        
+        // Silent tap: Record user interaction to enable autoplay
+        playerManager.recordUserInteraction()
+        
+        // Mark video as visible for enhanced auto-play functionality
+        playerManager.markVideoAsVisible(video.id)
+        
         playerManager.playVideo(for: video.videoURL, videoId: video.id)
         // Preload next 5 videos to disk
         playerManager.updatePreloadQueue(currentIndex: index, clips: videos, count: 5)
@@ -315,7 +328,8 @@ struct GameClipsView: View {
     }
 
     private func handleVideoDisappear(video: VideoClip) {
-        playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
+        // Mark video as hidden for enhanced visibility monitoring
+        playerManager.markVideoAsHidden(video.id)
 
         // Clean up control states to prevent UI breaking
         showVideoControls[video.id] = false
@@ -324,8 +338,6 @@ struct GameClipsView: View {
     }
 
     private func handleIndexChange(_ newIndex: Int) {
-        playerManager.pauseAllVideos()
-
         if newIndex < videos.count {
             let currentVideo = videos[newIndex]
             playerManager.playVideo(for: currentVideo.videoURL, videoId: currentVideo.id)
@@ -337,17 +349,23 @@ struct GameClipsView: View {
         doubleTapInProgress[video.id] = true
         handleDoubleTapLike(for: video, at: CGPoint(x: geometry.size.width/2, y: geometry.size.height/2))
 
-DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-doubleTapInProgress[video.id] = false
-}
-}
+        // Increase delay to prevent swipes from being registered as single taps
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            doubleTapInProgress[video.id] = false
+        }
+    }
 
 private func handleDragStart(for video: VideoClip) {
 showVideoControls[video.id] = true
 let removedTime = controlShowTimes.removeValue(forKey: video.id)
+
+// Pause video during seeking to prevent audio issues
+playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
+
 print("🎬 Drag started for video: \(video.id)")
 print("🎬 Removed show time: \(removedTime?.description ?? "none")")
 print("🎬 Controls will stay visible while dragging")
+print("🎬 Paused video during drag start")
 }
 
 private func handleDragEnd(for video: VideoClip) {
@@ -356,6 +374,7 @@ controlShowTimes[video.id] = newShowTime
 print("🎬 Drag ended for video: \(video.id)")
 print("🎬 New show time recorded: \(newShowTime)")
 print("🎬 Timer will auto-hide controls at: \(Date(timeIntervalSinceNow: 3.0))")
+print("🎬 Video will resume automatically after seek completes")
 }
 
 private func handleLocalStorageChange() {
@@ -522,6 +541,8 @@ if let video = self.filteredVideos.first(where: { $0.id == videoId }) {
 playerManager.seekVideo(for: video.videoURL, videoId: video.id, to: time)
 }
 }
+
+
 
 // MARK: - Timer Management
 private func startTimeUpdateTimer() {

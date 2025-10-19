@@ -23,6 +23,9 @@ struct LiveVideoPlayerView: View {
     @State private var nextExpectedChunk: Int = 1
     @State private var isLivePlaying = false
     @State private var livePollTask: Task<Void, Never>? = nil
+    
+    // Global live video manager to prevent audio overlap
+    private let liveVideoManager = LiveVideoManager.shared
 
     var body: some View {
         GeometryReader { geometry in
@@ -71,11 +74,23 @@ struct LiveVideoPlayerView: View {
             }
             .onAppear {
                 setupPlayer()
+                // Silent tap: Record user interaction to enable autoplay
+                VideoPlayerManager.shared.recordUserInteraction()
+                
+                // Register this live player with the manager
+                if let gid = video.gameId, !gid.isEmpty, let qp = queuePlayer {
+                    liveVideoManager.registerLivePlayer(qp, for: video.id)
+                    liveVideoManager.activateLiveVideo(video.id)
+                }
             }
         .onDisappear {
+            // Immediately pause/mute audio when view disappears to prevent overlap
             if let gid = video.gameId, !gid.isEmpty {
+                // For live videos, unregister from manager and disconnect
+                liveVideoManager.unregisterLivePlayer(for: video.id)
                 disconnectLive()
             } else {
+                // For regular videos, use the player manager
                 playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
             }
         }
@@ -157,6 +172,13 @@ struct LiveVideoPlayerView: View {
         if !isLivePlaying && enqueued >= minInitialBuffer {
             isLivePlaying = true
             print("[LiveVideoPlayerView][DEBUG] starting playback with minBuffer=\(minInitialBuffer)")
+            
+            // Set highest priority for live video playback
+            VideoPlayerManager.shared.setVideoPlaybackPriority()
+            
+            // Activate this live video in the manager
+            liveVideoManager.activateLiveVideo(video.id)
+            
             queuePlayer?.play()
         }
     }

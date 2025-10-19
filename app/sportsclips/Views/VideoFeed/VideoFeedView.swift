@@ -46,6 +46,12 @@ struct VideoFeedView: View {
             sportFilterBar
         }
         .onAppear {
+            // Check if user is logged in before doing anything
+            guard localStorage.isUserLoggedIn() else {
+                print("🔴 BLOCKED: VideoFeedView blocked - user not logged in")
+                return
+            }
+            
             // Set initial sport based on user preference
             let savedCategory = localStorage.getLastHighlightsCategory()
             if let sport = VideoClip.Sport(rawValue: savedCategory) {
@@ -178,7 +184,6 @@ struct VideoFeedView: View {
                                 action: {
                                     handleSportSelection(sport)
                                 },
-                                currentVideoSport: filteredVideos.isEmpty ? nil : filteredVideos[currentIndex].sport,
                                 selectedSport: selectedSport
                             )
                         }
@@ -326,6 +331,12 @@ struct VideoFeedView: View {
         // Disable tap detection during scroll transition
         tapDetectionEnabled[video.id] = false
         
+        // Silent tap: Record user interaction to enable autoplay
+        playerManager.recordUserInteraction()
+        
+        // Mark video as visible for enhanced auto-play functionality
+        playerManager.markVideoAsVisible(video.id)
+        
         // Always resume playback when video appears (handles scrolling back to paused videos)
         // The VideoPlayerManager will handle duplicate play attempts efficiently
         playerManager.playVideo(for: video.videoURL, videoId: video.id)
@@ -358,7 +369,8 @@ struct VideoFeedView: View {
     }
 
     private func handleVideoDisappear(video: VideoClip) {
-        playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
+        // Mark video as hidden for enhanced visibility monitoring
+        playerManager.markVideoAsHidden(video.id)
 
         // Clean up control states
         showVideoControls[video.id] = false
@@ -438,7 +450,8 @@ struct VideoFeedView: View {
         doubleTapInProgress[video.id] = true
         handleDoubleTapLike(for: video, at: CGPoint(x: geometry.size.width/2, y: geometry.size.height/2))
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        // Increase delay to prevent swipes from being registered as single taps
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             doubleTapInProgress[video.id] = false
         }
     }
@@ -447,8 +460,13 @@ struct VideoFeedView: View {
         showVideoControls[video.id] = true
         controlsVisible[video.id] = true
         let removedTime = controlShowTimes.removeValue(forKey: video.id)
+        
+        // Pause video during seeking to prevent audio issues
+        playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
+        
         print("🎬 Drag started for video: \(video.id)")
         print("🎬 Removed show time: \(removedTime?.description ?? "none")")
+        print("🎬 Paused video during drag start")
     }
 
     private func handleDragEnd(for video: VideoClip) {
@@ -456,6 +474,7 @@ struct VideoFeedView: View {
         controlShowTimes[video.id] = newShowTime
         print("🎬 Drag ended for video: \(video.id)")
         print("🎬 New show time recorded: \(newShowTime)")
+        print("🎬 Video will resume automatically after seek completes")
     }
 
     private func handleLocalStorageChange() {
@@ -477,7 +496,6 @@ struct VideoFeedView: View {
     }
 
     private func handleViewDisappear() {
-        playerManager.pauseAllVideos()
         stopTimeUpdateTimer()
 
         let activeVideoIds = filteredVideos.map { $0.id }
@@ -710,10 +728,12 @@ struct VideoFeedView: View {
     }
 
     private func getDuration(for videoId: String) -> Double {
-        if filteredVideos.contains(where: { $0.id == videoId }) {
-            return 596.0 // Fallback for BigBuckBunny
+        // Get actual duration from VideoPlayerManager
+        if let video = filteredVideos.first(where: { $0.id == videoId }) {
+            let actualDuration = playerManager.getDuration(for: video.videoURL, videoId: video.id)
+            return actualDuration > 0 ? actualDuration : 596.0 // Fallback if duration unavailable
         }
-        return 596.0
+        return 596.0 // Fallback for unknown videos
     }
 
     private func seekToTime(for videoId: String, time: Double) {
@@ -721,6 +741,7 @@ struct VideoFeedView: View {
             playerManager.seekVideo(for: video.videoURL, videoId: video.id, to: time)
         }
     }
+    
 
     // MARK: - Timer Management
     private func startTimeUpdateTimer() {
@@ -769,7 +790,6 @@ struct SportBubble: View {
     let sport: VideoClip.Sport
     let isSelected: Bool
     let action: () -> Void
-    let currentVideoSport: VideoClip.Sport?
     let selectedSport: VideoClip.Sport
 
     @State private var isPressed = false
@@ -777,14 +797,7 @@ struct SportBubble: View {
     @State private var animationOpacity: Double = 1.0
     
     private var dynamicSportText: String {
-        if sport == .all {
-            if selectedSport != .all {
-                return "All"
-            }
-            else if let currentSport = currentVideoSport, currentSport != .all {
-                return "All - \(currentSport.rawValue)"
-            }
-        }
+        // Always return the sport name without dynamic updates
         return sport.rawValue
     }
 
@@ -840,19 +853,7 @@ struct SportBubble: View {
                 }
             )
         }
-        .onChange(of: currentVideoSport) { oldValue, newValue in
-            if sport == .all && oldValue != newValue && oldValue != nil && newValue != nil {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    animationOpacity = 0.0
-                }
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        animationOpacity = 1.0
-                    }
-                }
-            }
-        }
+        // Removed dynamic updates - no longer needed
         .onChange(of: selectedSport) { oldValue, newValue in
             if sport == .all && oldValue != newValue {
                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -867,7 +868,7 @@ struct SportBubble: View {
             }
         }
         .onAppear {
-            previousSport = currentVideoSport
+            // Removed dynamic updates - no longer needed
         }
     }
 }
