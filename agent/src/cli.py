@@ -395,15 +395,6 @@ async def run_dual_mode(
             debug_dir=debug_dir,
         )
 
-        # Configure live commentary if enabled
-        live_config = None
-        if enable_live_commentary:
-            live_config = {
-                "system_instruction": "You are a sports commentator providing audio commentary. Keep it minimal - use 3-12 words per clip. Be energetic and natural. Examples: 'Strike three!', 'Amazing diving catch!', 'Home run to left field!'",
-                "prompt": commentary_prompt,
-                "fps": 4.0,  # 1 frame every 0.25 seconds
-            }
-
         highlight_task = asyncio.create_task(
             highlight_pipeline.process_video_url(
                 video_url=video_url,
@@ -413,7 +404,6 @@ async def run_dual_mode(
                 create_complete_message=create_complete_message,
                 create_error_message=create_error_message,
                 enable_live_commentary=enable_live_commentary,
-                live_commentary_config=live_config,
             ),
             name="highlight_detection",
         )

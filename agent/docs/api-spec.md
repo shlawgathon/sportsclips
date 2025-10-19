@@ -57,7 +57,9 @@ The server streams JSON messages. Six message types are defined:
       "audio_sample_rate": 24000,
       "commentary_length_bytes": 123456,
       "video_length_bytes": 234567,
-      "num_chunks_processed": 10
+      "base_chunks_combined": 2,
+      "total_duration_seconds": 8,
+      "narration_text": "string"
     }
   }
 }
@@ -72,7 +74,9 @@ The server streams JSON messages. Six message types are defined:
 - `data.metadata.audio_sample_rate`: Sample rate of the generated audio commentary (24000 Hz)
 - `data.metadata.commentary_length_bytes`: Size of the raw audio commentary in bytes
 - `data.metadata.video_length_bytes`: Size of the final video with commentary in bytes
-- `data.metadata.num_chunks_processed`: Number of video chunks that were processed
+- `data.metadata.base_chunks_combined`: Number of 4-second base chunks combined into this chunk (always 2)
+- `data.metadata.total_duration_seconds`: Total duration of the combined chunk in seconds (always 8)
+- `data.metadata.narration_text`: The text narration that was converted to speech
 
 ##### Error Message
 ```json
