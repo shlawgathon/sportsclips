@@ -13,7 +13,7 @@ from typing import Any
 from flask import Flask, request
 from flask_sock import Sock
 
-from .pipeline import create_default_pipeline
+from .pipeline import create_highlight_pipeline
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 sock = Sock(app)
 
-# Initialize video pipeline
-pipeline = create_default_pipeline(chunk_duration=15)
+# Initialize video pipeline with sliding window
+pipeline = create_highlight_pipeline(base_chunk_duration=2, window_size=7, slide_step=2)
 
 
 def create_snippet_message(

@@ -1,14 +1,10 @@
 """
 End-to-end tests for the video processing pipeline.
 
-These tests verify that the entire pipeline works from downloading videos
-to splitting them into chunks and sending through WebSocket.
+These tests verify that the sliding window pipeline works for highlight detection.
 """
 
-import base64
 import json
-import tempfile
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -18,296 +14,135 @@ from src.api import (
     create_error_message,
     create_snippet_message,
 )
-from src.pipeline import VideoPipeline, create_default_pipeline
+from src.pipeline import SlidingWindowPipeline, create_highlight_pipeline
 
 
-class TestVideoPipelineUnit:
-    """Unit tests for the VideoPipeline class."""
+class TestSlidingWindowPipelineUnit:
+    """Unit tests for the SlidingWindowPipeline class."""
 
     def test_pipeline_initialization(self):
         """Test that pipeline initializes with correct defaults."""
-        pipeline = VideoPipeline()
-        assert pipeline.chunk_duration == 15
+        pipeline = SlidingWindowPipeline()
+        assert pipeline.base_chunk_duration == 2
+        assert pipeline.window_size == 7
+        assert pipeline.slide_step == 2
         assert pipeline.format_selector == "best[ext=mp4]/best"
-        assert len(pipeline.modulation_functions) == 0
+        assert pipeline.detect_step is None
+        assert pipeline.trim_step is None
+        assert pipeline.caption_step is None
 
     def test_pipeline_custom_settings(self):
         """Test pipeline initialization with custom settings."""
-        pipeline = VideoPipeline(chunk_duration=30, format_selector="worst")
-        assert pipeline.chunk_duration == 30
-        assert pipeline.format_selector == "worst"
-
-    def test_add_modulation_function(self):
-        """Test adding modulation functions to pipeline."""
-        pipeline = VideoPipeline()
-
-        def dummy_modulation(data, metadata):
-            return data, metadata
-
-        pipeline.add_modulation(dummy_modulation)
-        assert len(pipeline.modulation_functions) == 1
-        assert pipeline.modulation_functions[0] == dummy_modulation
-
-    def test_multiple_modulation_functions(self):
-        """Test adding multiple modulation functions."""
-        pipeline = VideoPipeline()
-
-        def mod1(data, metadata):
-            return data, metadata
-
-        def mod2(data, metadata):
-            return data, metadata
-
-        pipeline.add_modulation(mod1)
-        pipeline.add_modulation(mod2)
-
-        assert len(pipeline.modulation_functions) == 2
-        assert pipeline.modulation_functions[0] == mod1
-        assert pipeline.modulation_functions[1] == mod2
-
-    def test_apply_modulations(self):
-        """Test that modulation functions are applied in order."""
-        pipeline = VideoPipeline()
-
-        def add_field1(data, metadata):
-            metadata["field1"] = "value1"
-            return data, metadata
-
-        def add_field2(data, metadata):
-            metadata["field2"] = "value2"
-            return data, metadata
-
-        pipeline.add_modulation(add_field1)
-        pipeline.add_modulation(add_field2)
-
-        test_data = b"test"
-        test_metadata = {"initial": "value"}
-
-        result_data, result_metadata = pipeline._apply_modulations(
-            test_data, test_metadata
+        pipeline = SlidingWindowPipeline(
+            base_chunk_duration=3, window_size=5, slide_step=1
         )
+        assert pipeline.base_chunk_duration == 3
+        assert pipeline.window_size == 5
+        assert pipeline.slide_step == 1
 
-        assert result_data == test_data
-        assert result_metadata["initial"] == "value"
-        assert result_metadata["field1"] == "value1"
-        assert result_metadata["field2"] == "value2"
+    def test_set_detect_step(self):
+        """Test setting the detect step function."""
+        pipeline = SlidingWindowPipeline()
 
-    def test_apply_modulations_transforms_data(self):
-        """Test that modulation functions can transform video data."""
-        pipeline = VideoPipeline()
+        def dummy_detect(chunks, metadata):
+            return True, metadata
 
-        def modify_data(data, metadata):
-            return data + b"_modified", metadata
+        pipeline.set_detect_step(dummy_detect)
+        assert pipeline.detect_step == dummy_detect
 
-        pipeline.add_modulation(modify_data)
+    def test_set_trim_step(self):
+        """Test setting the trim step function."""
+        pipeline = SlidingWindowPipeline()
 
-        test_data = b"original"
-        test_metadata = {}
+        def dummy_trim(chunks, metadata):
+            return b"trimmed", metadata
 
-        result_data, result_metadata = pipeline._apply_modulations(
-            test_data, test_metadata
+        pipeline.set_trim_step(dummy_trim)
+        assert pipeline.trim_step == dummy_trim
+
+    def test_set_caption_step(self):
+        """Test setting the caption step function."""
+        pipeline = SlidingWindowPipeline()
+
+        def dummy_caption(data, metadata):
+            return "title", "description", metadata
+
+        pipeline.set_caption_step(dummy_caption)
+        assert pipeline.caption_step == dummy_caption
+
+    def test_concatenate_chunks_single_chunk(self):
+        """Test concatenating a single chunk returns it unchanged."""
+        pipeline = SlidingWindowPipeline()
+        chunks = [b"single_chunk"]
+        result = pipeline._concatenate_chunks(chunks)
+        assert result == b"single_chunk"
+
+    def test_concatenate_chunks_empty(self):
+        """Test concatenating empty list returns empty bytes."""
+        pipeline = SlidingWindowPipeline()
+        result = pipeline._concatenate_chunks([])
+        assert result == b""
+
+    def test_create_highlight_pipeline(self):
+        """Test creating a highlight pipeline."""
+        pipeline = create_highlight_pipeline()
+        assert isinstance(pipeline, SlidingWindowPipeline)
+        assert pipeline.base_chunk_duration == 2
+        assert pipeline.window_size == 7
+        assert pipeline.slide_step == 2
+        # Steps should be configured
+        assert pipeline.detect_step is not None
+        assert pipeline.trim_step is not None
+        assert pipeline.caption_step is not None
+
+    def test_create_highlight_pipeline_custom_settings(self):
+        """Test creating a highlight pipeline with custom settings."""
+        pipeline = create_highlight_pipeline(
+            base_chunk_duration=3, window_size=5, slide_step=1
         )
-
-        assert result_data == b"original_modified"
-
-    def test_create_default_pipeline(self):
-        """Test creating a default pipeline."""
-        pipeline = create_default_pipeline()
-        assert isinstance(pipeline, VideoPipeline)
-        assert pipeline.chunk_duration == 15
-
-    def test_create_default_pipeline_custom_duration(self):
-        """Test creating a default pipeline with custom duration."""
-        pipeline = create_default_pipeline(chunk_duration=30)
-        assert pipeline.chunk_duration == 30
+        assert pipeline.base_chunk_duration == 3
+        assert pipeline.window_size == 5
+        assert pipeline.slide_step == 1
 
 
-class TestVideoPipelineSplitting:
-    """Test video splitting functionality.
-
-    Note: Video splitting/chunking functionality has been moved to stream.py
-    and is tested in test_stream.py. These tests are kept for backwards compatibility.
-    """
-
-    @pytest.mark.skip(
-        reason="Functionality moved to stream.py, tested in test_stream.py"
-    )
-    def test_split_video_creates_chunks(self):
-        """Test that video splitting creates chunks - DEPRECATED."""
-        pass
-
-    @pytest.mark.skip(
-        reason="Functionality moved to stream.py, tested in test_stream.py"
-    )
-    def test_split_video_invalid_input_raises_error(self):
-        """Test that splitting non-existent video raises error - DEPRECATED."""
-        pass
-
-
-class TestVideoPipelineIntegration:
-    """Integration tests for the complete pipeline."""
+class TestSlidingWindowIntegration:
+    """Integration tests for the sliding window pipeline."""
 
     @patch("src.pipeline.stream_and_chunk_video")
-    def test_pipeline_processes_video_and_sends_chunks(self, mock_stream_and_chunk):
-        """Test that pipeline downloads, splits, and sends chunks."""
-        pipeline = VideoPipeline(chunk_duration=3)
+    def test_pipeline_sliding_window_logic(self, mock_stream_and_chunk):
+        """Test that pipeline correctly implements sliding window logic."""
+        pipeline = SlidingWindowPipeline(
+            base_chunk_duration=2, window_size=3, slide_step=1
+        )
 
-        # Create temp file and close it so ffmpeg can write to it
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-        tmp.close()
-        tmp_path = Path(tmp.name)
+        # Create mock chunks (simulate 6 chunks = 12 seconds of video)
+        mock_chunks = [
+            b"chunk_0",
+            b"chunk_1",
+            b"chunk_2",
+            b"chunk_3",
+            b"chunk_4",
+            b"chunk_5",
+        ]
+        mock_stream_and_chunk.return_value = iter(mock_chunks)
 
-        try:
-            # Create a test video
-            import subprocess
+        # Track which windows were processed
+        processed_windows = []
 
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "testsrc=duration=6:size=320x240:rate=1",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-y",  # Overwrite output file
-                    str(tmp_path),
-                ],
-                capture_output=True,
-                check=True,
+        def track_detect(chunks, metadata):
+            processed_windows.append(
+                (metadata["window_start_chunk"], metadata["window_end_chunk"])
             )
+            # No highlights detected
+            return False, metadata
 
-            # Read the test video data
-            with open(tmp_path, "rb") as f:
-                test_video_data = f.read()
+        pipeline.set_detect_step(track_detect)
 
-            # Mock stream_and_chunk_video to return chunks (it returns complete MP4 chunks, not raw bytes)
-            # Simulate returning 2 chunks
-            chunk1 = test_video_data[: len(test_video_data) // 2]
-            chunk2 = test_video_data[len(test_video_data) // 2 :]
-            mock_stream_and_chunk.return_value = iter([chunk1, chunk2])
-
-            # Mock WebSocket
-            mock_ws = Mock()
-
-            # Process video
-            test_url = "https://example.com/test.mp4"
-            pipeline.process_video_url(
-                video_url=test_url,
-                ws=mock_ws,
-                is_live=False,
-                create_snippet_message=create_snippet_message,
-                create_complete_message=create_complete_message,
-                create_error_message=create_error_message,
-            )
-
-            # Verify stream_and_chunk_video was called
-            mock_stream_and_chunk.assert_called_once()
-
-            # Verify WebSocket sends were made (at least 1 chunk + 1 completion)
-            assert mock_ws.send.call_count >= 2, (
-                f"Should send at least 1 chunk + completion, got {mock_ws.send.call_count}"
-            )
-
-            # Verify last message is completion
-            last_call = mock_ws.send.call_args_list[-1][0][0]
-            last_msg = json.loads(last_call)
-            assert last_msg["type"] == "snippet_complete"
-
-            # Verify chunk messages
-            chunk_messages = [
-                json.loads(call[0][0]) for call in mock_ws.send.call_args_list[:-1]
-            ]
-            for msg in chunk_messages:
-                assert msg["type"] == "snippet"
-                assert "video_data" in msg["data"]
-                assert msg["data"]["metadata"]["src_video_url"] == test_url
-
-        except FileNotFoundError:
-            pytest.skip("ffmpeg not available")
-        except Exception as e:
-            pytest.skip(f"Test setup failed: {e}")
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
-
-    @patch("src.pipeline.stream_and_chunk_video")
-    def test_pipeline_with_modulation_functions(self, mock_stream_and_chunk):
-        """Test that modulation functions are applied to chunks."""
-        pipeline = VideoPipeline(chunk_duration=3)
-
-        # Add a modulation function that adds metadata
-        def add_watermark(data, metadata):
-            metadata["watermark"] = "test_watermark"
-            return data, metadata
-
-        pipeline.add_modulation(add_watermark)
-
-        # Create temp file and close it so ffmpeg can write to it
-        tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-        tmp.close()
-        tmp_path = Path(tmp.name)
-
-        try:
-            import subprocess
-
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "testsrc=duration=6:size=320x240:rate=1",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-y",  # Overwrite output file
-                    str(tmp_path),
-                ],
-                capture_output=True,
-                check=True,
-            )
-
-            with open(tmp_path, "rb") as f:
-                test_video_data = f.read()
-
-            # Mock stream_and_chunk_video to return chunks
-            chunk1 = test_video_data[: len(test_video_data) // 2]
-            chunk2 = test_video_data[len(test_video_data) // 2 :]
-            mock_stream_and_chunk.return_value = iter([chunk1, chunk2])
-
-            mock_ws = Mock()
-            test_url = "https://example.com/test.mp4"
-
-            pipeline.process_video_url(
-                video_url=test_url,
-                ws=mock_ws,
-                is_live=False,
-                create_snippet_message=create_snippet_message,
-                create_complete_message=create_complete_message,
-                create_error_message=create_error_message,
-            )
-
-            # Verify execution worked - at least 1 chunk + 1 completion
-            assert mock_ws.send.call_count >= 2, (
-                f"Should send at least 1 chunk + completion, got {mock_ws.send.call_count}"
-            )
-
-        except FileNotFoundError:
-            pytest.skip("ffmpeg not available")
-        except Exception as e:
-            pytest.skip(f"Test setup failed: {e}")
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
-
-    def test_pipeline_handles_download_error(self):
-        """Test that pipeline handles download errors gracefully."""
-        pipeline = VideoPipeline()
         mock_ws = Mock()
-        invalid_url = "https://invalid-url-that-does-not-exist.com/video.mp4"
+        test_url = "https://example.com/test.mp4"
 
         pipeline.process_video_url(
-            video_url=invalid_url,
+            video_url=test_url,
             ws=mock_ws,
             is_live=False,
             create_snippet_message=create_snippet_message,
@@ -315,106 +150,124 @@ class TestVideoPipelineIntegration:
             create_error_message=create_error_message,
         )
 
-        # Should have sent an error message
-        assert mock_ws.send.called
-        error_call = mock_ws.send.call_args_list[-1][0][0]
-        error_msg = json.loads(error_call)
-        assert error_msg["type"] == "error"
+        # With 6 chunks, window_size=3, slide_step=1, we should process:
+        # Window 0-2, 1-3, 2-4, 3-5 (4 windows)
+        assert len(processed_windows) == 4
+        assert processed_windows[0] == (0, 2)
+        assert processed_windows[1] == (1, 3)
+        assert processed_windows[2] == (2, 4)
+        assert processed_windows[3] == (3, 5)
 
+        # Should only send completion message (no highlights)
+        assert mock_ws.send.call_count == 1
+        last_msg = json.loads(mock_ws.send.call_args_list[-1][0][0])
+        assert last_msg["type"] == "snippet_complete"
 
-class TestPipelineE2E:
-    """End-to-end tests using actual video processing."""
+    @patch("src.pipeline.stream_and_chunk_video")
+    def test_pipeline_highlight_detection_and_skip(self, mock_stream_and_chunk):
+        """Test that pipeline skips window when highlight is detected."""
+        pipeline = SlidingWindowPipeline(
+            base_chunk_duration=2, window_size=3, slide_step=1
+        )
 
-    def test_e2e_short_video_processing(self):
-        """E2E test: Download a short video, split into chunks, verify output."""
-        # Use a very short test video
-        test_url = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"
+        # Create mock chunks
+        mock_chunks = [
+            b"chunk_0",
+            b"chunk_1",
+            b"chunk_2",
+            b"chunk_3",
+            b"chunk_4",
+            b"chunk_5",
+        ]
+        mock_stream_and_chunk.return_value = iter(mock_chunks)
 
-        pipeline = VideoPipeline(chunk_duration=5)
-        mock_ws = Mock()
+        processed_windows = []
 
-        try:
-            pipeline.process_video_url(
-                video_url=test_url,
-                ws=mock_ws,
-                is_live=False,
-                create_snippet_message=create_snippet_message,
-                create_complete_message=create_complete_message,
-                create_error_message=create_error_message,
-            )
+        def detect_first_window(chunks, metadata):
+            window_start = metadata["window_start_chunk"]
+            processed_windows.append(window_start)
+            # Detect highlight only in first window
+            return window_start == 0, metadata
 
-            # Verify WebSocket was called
-            assert mock_ws.send.call_count >= 2, (
-                "Should send at least 1 chunk + completion"
-            )
+        def dummy_trim(chunks, metadata):
+            return b"trimmed_video", metadata
 
-            # Parse all messages
-            messages = [json.loads(call[0][0]) for call in mock_ws.send.call_args_list]
+        def dummy_caption(data, metadata):
+            return "Test Highlight", "Test Description", metadata
 
-            # Last message should be completion
-            assert messages[-1]["type"] == "snippet_complete"
-            assert messages[-1]["metadata"]["src_video_url"] == test_url
-
-            # All other messages should be snippets
-            chunk_messages = messages[:-1]
-            assert len(chunk_messages) >= 1, "Should have at least 1 chunk"
-
-            for idx, msg in enumerate(chunk_messages):
-                assert msg["type"] == "snippet"
-                assert "video_data" in msg["data"]
-                assert msg["data"]["metadata"]["src_video_url"] == test_url
-                # Note: chunk_index and duration_seconds are not included in
-                # create_snippet_message output, only title and description
-                assert "title" in msg["data"]["metadata"]
-                assert "description" in msg["data"]["metadata"]
-
-                # Verify video data is valid base64
-                video_data = base64.b64decode(msg["data"]["video_data"])
-                assert len(video_data) > 0, "Chunk should have video data"
-                # Check for MP4 file signature
-                assert (
-                    video_data[:4] == b"\x00\x00\x00\x20"
-                    or video_data[:4] == b"\x00\x00\x00\x1c"
-                    or b"ftyp" in video_data[:20]
-                ), "Should be valid MP4 data"
-
-        except Exception as e:
-            pytest.skip(f"E2E test failed (network/dependency issue): {e}")
-
-    def test_e2e_with_modulation(self):
-        """E2E test with custom modulation function."""
-        test_url = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"
-
-        pipeline = VideoPipeline(chunk_duration=10)
-
-        # Add modulation to track chunks processed
-        chunks_processed = []
-
-        def track_chunks(data, metadata):
-            chunks_processed.append(metadata.get("chunk_index"))
-            metadata["processed"] = True
-            return data, metadata
-
-        pipeline.add_modulation(track_chunks)
+        pipeline.set_detect_step(detect_first_window)
+        pipeline.set_trim_step(dummy_trim)
+        pipeline.set_caption_step(dummy_caption)
 
         mock_ws = Mock()
+        test_url = "https://example.com/test.mp4"
 
-        try:
-            pipeline.process_video_url(
-                video_url=test_url,
-                ws=mock_ws,
-                is_live=False,
-                create_snippet_message=create_snippet_message,
-                create_complete_message=create_complete_message,
-                create_error_message=create_error_message,
-            )
+        pipeline.process_video_url(
+            video_url=test_url,
+            ws=mock_ws,
+            is_live=False,
+            create_snippet_message=create_snippet_message,
+            create_complete_message=create_complete_message,
+            create_error_message=create_error_message,
+        )
 
-            # Verify chunks were processed through modulation
-            assert len(chunks_processed) >= 1, "Modulation should have been called"
-            assert chunks_processed[0] == 0, "First chunk should be index 0"
+        # Should process: window 0 (highlight, skip to 3), then 3
+        # Windows processed: 0, 3
+        assert 0 in processed_windows
+        assert 3 in processed_windows
+        # Should NOT process windows 1, 2 (skipped due to highlight)
+        assert 1 not in processed_windows
+        assert 2 not in processed_windows
 
-        except Exception as e:
-            pytest.skip(f"E2E test failed (network/dependency issue): {e}")
+        # Should send: 1 highlight + 1 completion
+        assert mock_ws.send.call_count == 2
+
+        # First message should be the highlight
+        first_msg = json.loads(mock_ws.send.call_args_list[0][0][0])
+        assert first_msg["type"] == "snippet"
+
+        # Last message should be completion
+        last_msg = json.loads(mock_ws.send.call_args_list[-1][0][0])
+        assert last_msg["type"] == "snippet_complete"
+
+    @patch("src.pipeline.stream_and_chunk_video")
+    def test_pipeline_metadata_tracking(self, mock_stream_and_chunk):
+        """Test that pipeline correctly tracks metadata for windows."""
+        pipeline = SlidingWindowPipeline(base_chunk_duration=2, window_size=3)
+
+        mock_chunks = [b"chunk_0", b"chunk_1", b"chunk_2"]
+        mock_stream_and_chunk.return_value = iter(mock_chunks)
+
+        captured_metadata = []
+
+        def capture_metadata(chunks, metadata):
+            captured_metadata.append(metadata.copy())
+            return False, metadata
+
+        pipeline.set_detect_step(capture_metadata)
+
+        mock_ws = Mock()
+        test_url = "https://example.com/test.mp4"
+
+        pipeline.process_video_url(
+            video_url=test_url,
+            ws=mock_ws,
+            is_live=False,
+            create_snippet_message=create_snippet_message,
+            create_complete_message=create_complete_message,
+            create_error_message=create_error_message,
+        )
+
+        # Should have processed 1 window (0-2)
+        assert len(captured_metadata) == 1
+
+        metadata = captured_metadata[0]
+        assert metadata["src_video_url"] == test_url
+        assert metadata["window_start_chunk"] == 0
+        assert metadata["window_end_chunk"] == 2
+        assert metadata["window_start_time"] == 0
+        assert metadata["window_end_time"] == 6  # 3 chunks * 2 seconds
+        assert metadata["base_chunk_duration"] == 2
 
 
 class TestPipelineErrorHandling:
@@ -422,7 +275,7 @@ class TestPipelineErrorHandling:
 
     def test_pipeline_sends_error_on_invalid_url(self):
         """Test that invalid URL triggers error message."""
-        pipeline = VideoPipeline()
+        pipeline = SlidingWindowPipeline()
         mock_ws = Mock()
 
         invalid_url = (
@@ -444,13 +297,9 @@ class TestPipelineErrorHandling:
         assert last_msg["type"] == "error"
 
     @patch("src.pipeline.stream_and_chunk_video")
-    def test_pipeline_cleans_up_temp_files(self, mock_stream_and_chunk):
-        """Test that temporary files are cleaned up even on error.
-
-        Note: Temp file cleanup is now handled within stream.py functions,
-        not in the pipeline. This test verifies error handling.
-        """
-        pipeline = VideoPipeline()
+    def test_pipeline_handles_processing_error(self, mock_stream_and_chunk):
+        """Test that pipeline handles errors during processing."""
+        pipeline = SlidingWindowPipeline()
 
         # Make stream fail
         mock_stream_and_chunk.side_effect = Exception("Download failed")
@@ -470,6 +319,72 @@ class TestPipelineErrorHandling:
         # Error message should be sent
         last_msg = json.loads(mock_ws.send.call_args_list[-1][0][0])
         assert last_msg["type"] == "error"
+
+
+class TestPipelineBasicFunctionality:
+    """Basic functional tests to validate core assumptions."""
+
+    @patch("src.pipeline.stream_and_chunk_video")
+    def test_chunks_collected_correctly(self, mock_stream_and_chunk):
+        """Validate that all chunks are collected before processing."""
+        pipeline = SlidingWindowPipeline()
+
+        mock_chunks = [b"chunk_0", b"chunk_1", b"chunk_2", b"chunk_3"]
+        mock_stream_and_chunk.return_value = iter(mock_chunks)
+
+        chunk_count_in_detect = []
+
+        def count_chunks(chunks, metadata):
+            chunk_count_in_detect.append(len(chunks))
+            return False, metadata
+
+        pipeline.set_detect_step(count_chunks)
+
+        mock_ws = Mock()
+        pipeline.process_video_url(
+            video_url="https://example.com/test.mp4",
+            ws=mock_ws,
+            is_live=False,
+            create_snippet_message=create_snippet_message,
+            create_complete_message=create_complete_message,
+            create_error_message=create_error_message,
+        )
+
+        # All detect calls should receive window_size chunks
+        assert all(count == pipeline.window_size for count in chunk_count_in_detect)
+
+    @patch("src.pipeline.stream_and_chunk_video")
+    def test_window_slide_behavior_without_highlight(self, mock_stream_and_chunk):
+        """Validate sliding by slide_step when no highlight."""
+        pipeline = SlidingWindowPipeline(window_size=3, slide_step=2)
+
+        # Need at least 7 chunks to see multiple slides
+        mock_chunks = [f"chunk_{i}".encode() for i in range(10)]
+        mock_stream_and_chunk.return_value = iter(mock_chunks)
+
+        window_starts = []
+
+        def track_windows(chunks, metadata):
+            window_starts.append(metadata["window_start_chunk"])
+            return False, metadata  # No highlights
+
+        pipeline.set_detect_step(track_windows)
+
+        mock_ws = Mock()
+        pipeline.process_video_url(
+            video_url="https://example.com/test.mp4",
+            ws=mock_ws,
+            is_live=False,
+            create_snippet_message=create_snippet_message,
+            create_complete_message=create_complete_message,
+            create_error_message=create_error_message,
+        )
+
+        # With slide_step=2, should slide: 0, 2, 4, 6
+        assert window_starts[0] == 0
+        assert window_starts[1] == 2
+        assert window_starts[2] == 4
+        assert window_starts[3] == 6
 
 
 if __name__ == "__main__":
