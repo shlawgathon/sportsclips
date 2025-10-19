@@ -2,8 +2,8 @@
 //  ScrollableSportsLogo.swift
 //  sportsclips
 //
-//  Scrollable sports icons with Apple's liquid glass design
-//  3D carousel effect with infinite scroll
+//  Auto-scrolling sports icons with Apple's liquid glass design
+//  Scrolls left automatically + manual swipe control
 //
 
 import SwiftUI
@@ -43,10 +43,16 @@ struct ScrollableSportsLogo: View {
     
     // Create infinite copies
     private var infiniteIcons: [String] {
-        Array(repeating: sportsIcons, count: 10).flatMap { $0 }
+        Array(repeating: sportsIcons, count: 20).flatMap { $0 }
     }
     
-    @State private var selectedIndex: Int? = nil
+    @State private var scrollOffset: CGFloat = 0
+    @State private var isAutoScrolling = true
+    @State private var userIsDragging = false
+    @State private var dragStartOffset: CGFloat = 0
+    
+    let iconWidth: CGFloat = 120 // 100 + 20 spacing
+    let autoScrollSpeed: Double = 1.0 // Points per frame (about 30fps) - Faster scroll
     
     var body: some View {
         GeometryReader { outerGeometry in
@@ -75,16 +81,81 @@ struct ScrollableSportsLogo: View {
                         }
                     }
                     .padding(.horizontal, (outerGeometry.size.width - 100) / 2)
+                    .offset(x: scrollOffset)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                // Stop auto-scroll when user starts dragging
+                                if !userIsDragging {
+                                    userIsDragging = true
+                                    isAutoScrolling = false
+                                    dragStartOffset = scrollOffset
+                                }
+                                
+                                // Apply user's drag
+                                scrollOffset = dragStartOffset + value.translation.width
+                            }
+                            .onEnded { value in
+                                userIsDragging = false
+                                
+                                // Resume auto-scroll after 2 seconds of no interaction
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                    if !userIsDragging {
+                                        isAutoScrolling = true
+                                    }
+                                }
+                                
+                                // Add momentum to the scroll
+                                let velocity = value.predictedEndTranslation.width - value.translation.width
+                                withAnimation(.interpolatingSpring(stiffness: 100, damping: 15)) {
+                                    scrollOffset += velocity * 0.3
+                                }
+                                
+                                // Check if we need to loop
+                                checkAndLoopScroll()
+                            }
+                    )
                 }
                 .frame(height: 150)
                 .onAppear {
-                    // Scroll to middle of the infinite array on appear
+                    // Start from middle
                     let middleIndex = infiniteIcons.count / 2
-                    proxy.scrollTo(middleIndex, anchor: .center)
+                    scrollOffset = -CGFloat(middleIndex) * iconWidth + (outerGeometry.size.width / 2)
+                    
+                    // Start auto-scroll
+                    startAutoScroll()
                 }
             }
         }
         .frame(height: 150)
+    }
+    
+    private func startAutoScroll() {
+        Timer.scheduledTimer(withTimeInterval: 1/30, repeats: true) { timer in
+            guard isAutoScrolling else { return }
+            
+            withAnimation(.linear(duration: 1/30)) {
+                scrollOffset -= autoScrollSpeed
+            }
+            
+            // Loop the scroll when reaching end
+            checkAndLoopScroll()
+        }
+    }
+    
+    private func checkAndLoopScroll() {
+        let totalWidth = CGFloat(infiniteIcons.count) * iconWidth
+        let loopPoint = totalWidth / 4 // Loop at 1/4 through the array
+        
+        // If scrolled too far left, jump back
+        if scrollOffset < -loopPoint * 3 {
+            scrollOffset += loopPoint
+        }
+        
+        // If scrolled too far right, jump forward
+        if scrollOffset > -loopPoint {
+            scrollOffset -= loopPoint
+        }
     }
 }
 
@@ -251,14 +322,15 @@ struct LiquidGlassSportsIcon: View {
         .ignoresSafeArea()
         
         VStack {
-            Text("Scroll the icons below")
-                .font(.title3)
+            Text("Auto-Scrolling Sports Icons")
+                .font(.title2.bold())
                 .foregroundColor(.white)
-                .padding()
+                .padding(.top, 60)
             
-            Text("Slower scroll + Infinite icons")
+            Text("Swipe to pause • Auto-resumes in 2s")
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.7))
+                .padding(.bottom, 20)
             
             ScrollableSportsLogo()
             
