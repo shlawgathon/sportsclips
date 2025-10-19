@@ -56,7 +56,17 @@ class VideoPlayerManager: ObservableObject {
     }
 
     /// Get player for a VideoClip, fetching the presigned URL if needed
+    /// For live videos (identified by non-empty gameId), we do NOT load any URL here.
+    /// Live playback is handled by LiveVideoPlayerView via WebSocket chunks.
     func getPlayer(for videoClip: VideoClip) async -> AVPlayer {
+        // If this is a live item, don't attempt to fetch or load a URL
+        if let gid = videoClip.gameId, !gid.isEmpty {
+            if let existing = players[videoClip.id] { return existing }
+            let empty = AVPlayer()
+            players[videoClip.id] = empty
+            return empty
+        }
+
         // Check if we already have a player for this video
         if let existingPlayer = players[videoClip.id] {
             return existingPlayer
@@ -123,6 +133,12 @@ class VideoPlayerManager: ObservableObject {
 
     /// Play video from VideoClip, fetching presigned URL if needed
     func playVideo(for videoClip: VideoClip) async {
+        // For live videos, playback is handled by LiveVideoPlayerView via WebSocket chunks
+        if let gid = videoClip.gameId, !gid.isEmpty {
+            // Do not attempt to play via URL/AVPlayer here
+            currentActiveVideoId = nil
+            return
+        }
         // Pause all other videos first to save resources
         pauseAllVideosExcept(videoId: videoClip.id)
 
@@ -246,6 +262,8 @@ class VideoPlayerManager: ObservableObject {
         Task {
             var items: [(id: String, url: URL)] = []
             for clip in nextClips {
+                // Skip live items; they are streamed over WebSocket and have no direct video URL
+                if let gid = clip.gameId, !gid.isEmpty { continue }
                 var urlStr = clip.videoURL
                 if urlStr.isEmpty {
                     // Attempt to fetch presigned URL
