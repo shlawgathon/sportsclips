@@ -173,6 +173,46 @@ final class APIClient {
         try await request("/live", method: "POST", body: CreateLiveRequest(title: title, description: description, streamUrl: streamUrl, isLive: isLive), response: IdResponse.self)
     }
 
+    // MARK: - Live Polling (Comments & Viewers)
+    struct LiveCommentDTO: Codable {
+        let id: String
+        let clipId: String
+        let userId: String
+        let username: String
+        let message: String
+        let timestampEpochSec: Int64
+    }
+    struct LiveCommentsResponse: Codable { let comments: [LiveCommentDTO] }
+    struct PostLiveCommentRequest: Encodable {
+        let userId: String
+        let username: String
+        let message: String
+    }
+    struct ViewerHeartbeatRequest: Encodable { let viewerId: String }
+    struct ViewerInfoResponse: Codable {
+        let clipId: String
+        let viewers: Int
+    }
+
+    func liveFetchComments(clipId: String, limit: Int = 10, afterTs: Int64? = nil) async throws -> [LiveCommentDTO] {
+        var query: [URLQueryItem] = [URLQueryItem(name: "limit", value: String(limit))]
+        if let afterTs = afterTs { query.append(URLQueryItem(name: "afterTs", value: String(afterTs))) }
+        let resp: LiveCommentsResponse = try await request("/live/\(clipId)/comments", queryItems: query, response: LiveCommentsResponse.self)
+        return resp.comments
+    }
+
+    func livePostComment(clipId: String, userId: String, username: String, message: String) async throws -> LiveCommentDTO {
+        try await request("/live/\(clipId)/comments", method: "POST", body: PostLiveCommentRequest(userId: userId, username: username, message: message), response: LiveCommentDTO.self)
+    }
+
+    func liveViewerInfo(clipId: String) async throws -> ViewerInfoResponse {
+        try await request("/live/\(clipId)/viewers", response: ViewerInfoResponse.self)
+    }
+
+    func liveHeartbeat(clipId: String, viewerId: String) async throws -> ViewerInfoResponse {
+        try await request("/live/\(clipId)/viewers/heartbeat", method: "POST", body: ViewerHeartbeatRequest(viewerId: viewerId), response: ViewerInfoResponse.self)
+    }
+
     // MARK: - Helpers (Query)
     private func request<T: Decodable>(_ path: String, queryItems: [URLQueryItem], method: String = "GET", body: Encodable? = nil, response: T.Type) async throws -> T {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
