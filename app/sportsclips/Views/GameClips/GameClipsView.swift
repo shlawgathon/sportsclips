@@ -9,6 +9,7 @@ import SwiftUI
 import AVFoundation
 
 struct GameClipsView: View {
+    let gameId: String
     let gameName: String
     @StateObject private var playerManager = VideoPlayerManager.shared
     @StateObject private var localStorage = LocalStorageService.shared
@@ -25,11 +26,11 @@ struct GameClipsView: View {
     @State private var doubleTapInProgress: [String: Bool] = [:] // Track if double tap is in progress
     @State private var controlShowTimes: [String: Date] = [:] // Track when controls were shown for each video
     @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            
+
             if videos.isEmpty && isLoading {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -39,7 +40,7 @@ struct GameClipsView: View {
                     Image(systemName: "gamecontroller")
                         .font(.system(size: 60, weight: .light))
                         .foregroundColor(.white.opacity(0.6))
-                    
+
                     Text("No clips for \(gameName)")
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(.white.opacity(0.7))
@@ -55,7 +56,7 @@ struct GameClipsView: View {
                                         VideoPlayerView(video: video, playerManager: playerManager)
                                             .frame(width: geometry.size.width, height: geometry.size.height)
                                             .clipped()
-                                        
+
                                         // Invisible overlay for tap detection
                                         Rectangle()
                                             .fill(Color.clear)
@@ -84,7 +85,7 @@ struct GameClipsView: View {
                                                     .onEnded { _ in
                                                         doubleTapInProgress[video.id] = true
                                                         handleDoubleTapLike(for: video, at: CGPoint(x: geometry.size.width/2, y: geometry.size.height/2))
-                                                        
+
                                                         // Reset the flag after a short delay
                                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                                             doubleTapInProgress[video.id] = false
@@ -92,11 +93,11 @@ struct GameClipsView: View {
                                                     }
                                             )
                                             .zIndex(1)
-                                        
+
                                         // Video overlay with buttons and caption
                                         VStack {
                                             Spacer()
-                                            
+
                                             HStack(alignment: .bottom) {
                                                 // Caption on the left
                                                             CaptionView(
@@ -128,9 +129,9 @@ struct GameClipsView: View {
                                                                     print("🎬 Timer will auto-hide controls at: \(Date(timeIntervalSinceNow: 3.0))")
                                                                 }
                                                             )
-                                                
+
                                                 Spacer()
-                                                
+
                                                 // Action buttons on the right
                                                 VideoOverlayView(
                                                     video: video,
@@ -140,21 +141,21 @@ struct GameClipsView: View {
                                             .padding(.bottom, 80) // Reduced gap to match VideoFeedView
                                         }
                                         .zIndex(2)
-                                        
+
                                         // Heart animation overlay
                                         if let heartAnimation = heartAnimations[video.id] {
                                             HeartAnimationView(animation: heartAnimation)
                                                 .zIndex(3)
                                         }
-                                        
+
                                         // Custom video controls (now integrated into CaptionView)
-                                        
+
                                         // Glass play button overlay
                                         if pausedVideos[video.id] == true {
                                             ZStack {
                                                 Color.black.opacity(0.2)
                                                     .ignoresSafeArea()
-                                                
+
                                                 Button(action: {
                                                     playerManager.playVideo(for: video.videoURL, videoId: video.id)
                                                     pausedVideos[video.id] = false
@@ -178,7 +179,7 @@ struct GameClipsView: View {
                                                                     )
                                                             )
                                                             .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
-                                                        
+
                                                         Image(systemName: "play.fill")
                                                             .font(.system(size: 40, weight: .medium))
                                                             .foregroundColor(.white)
@@ -198,14 +199,14 @@ struct GameClipsView: View {
                                         currentIndex = index
                                         playerManager.playVideo(for: video.videoURL, videoId: video.id)
                                         localStorage.recordView(videoId: video.id)
-                                        
+
                                         if let interaction = localStorage.getInteraction(for: video.id) {
                                             videoLikeStates[video.id] = interaction.liked
                                         }
                                     }
         .onDisappear {
             playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
-            
+
             // Clean up control states to prevent UI breaking
             showVideoControls[video.id] = false
             controlShowTimes.removeValue(forKey: video.id)
@@ -217,7 +218,7 @@ struct GameClipsView: View {
                         .scrollTargetBehavior(.paging)
                         .onChange(of: currentIndex) { _, newIndex in
                             playerManager.pauseAllVideos()
-                            
+
                             if newIndex < videos.count {
                                 let currentVideo = videos[newIndex]
                                 playerManager.playVideo(for: currentVideo.videoURL, videoId: currentVideo.id)
@@ -228,7 +229,7 @@ struct GameClipsView: View {
                 }
                 .ignoresSafeArea()
             }
-            
+
             // Header with back button and game name
             VStack {
                 HStack {
@@ -247,15 +248,15 @@ struct GameClipsView: View {
                             )
                     }
                     .buttonStyle(PlainButtonStyle())
-                    
+
                     Spacer()
-                    
+
                     Text(gameName)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
-                    
+
                     Spacer()
-                    
+
                     // Invisible spacer to center the title
                     Circle()
                         .fill(Color.clear)
@@ -263,7 +264,7 @@ struct GameClipsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                
+
                 Spacer()
             }
         }
@@ -274,7 +275,7 @@ struct GameClipsView: View {
         .onChange(of: localStorage.interactions) { _, _ in
             // React to changes in local storage interactions
             print("🔄 GameClipsView: LocalStorage interactions changed, refreshing state")
-            
+
             // Update like states for all videos
             for video in filteredVideos {
                 if let interaction = localStorage.getInteraction(for: video.id) {
@@ -285,7 +286,7 @@ struct GameClipsView: View {
                     }
                 }
             }
-            
+
             // Force UI refresh by updating a dummy state
             DispatchQueue.main.async {
                 // Trigger a state change to force UI refresh
@@ -295,36 +296,59 @@ struct GameClipsView: View {
         .onDisappear {
             playerManager.pauseAllVideos()
             stopTimeUpdateTimer()
-            
+
             // Clean up unused players to free memory
             let activeVideoIds = filteredVideos.map { $0.id }
             playerManager.cleanupUnusedPlayers(activeVideoIds: activeVideoIds)
-            
+
             // Clean up all control states to prevent UI breaking
             showVideoControls.removeAll()
             controlShowTimes.removeAll()
             heartAnimations.removeAll()
-            
+
             print("🎬 GameClipsView disappeared - cleaned up resources")
         }
     }
-    
+
     private func loadGameClips() {
         guard !isLoading else { return }
-        
+
         isLoading = true
         Task {
             do {
-                // Filter videos by game name (using caption as game identifier for now)
-                let allVideos = try await APIService.shared.fetchVideos()
-                let gameVideos = allVideos.filter { video in
-                    video.caption.lowercased().contains(gameName.lowercased())
+                // Fetch clips for this specific game from backend
+                let items = try await APIClient.shared.listClipsByGame(gameId: gameId)
+                // Map to VideoClip and fetch presigned URLs concurrently
+                let gameVideos: [VideoClip] = try await withThrowingTaskGroup(of: VideoClip.self) { group in
+                    for item in items {
+                        group.addTask {
+                            var model = VideoClip.fromClip(item.clip, clipId: item.id)
+                            let url = try await model.fetchVideoURL()
+                            return VideoClip(
+                                id: model.id,
+                                videoURL: url,
+                                caption: model.caption,
+                                sport: model.sport,
+                                likes: model.likes,
+                                comments: model.comments,
+                                shares: model.shares,
+                                createdAt: model.createdAt,
+                                s3Key: model.s3Key,
+                                title: model.title,
+                                description: model.description,
+                                gameId: model.gameId
+                            )
+                        }
+                    }
+                    var results: [VideoClip] = []
+                    for try await vc in group { results.append(vc) }
+                    return results
                 }
-                
+
                 await MainActor.run {
                     self.videos = gameVideos
                     self.isLoading = false
-                    
+
                     if !gameVideos.isEmpty {
                         playerManager.playVideo(for: gameVideos[0].videoURL, videoId: gameVideos[0].id)
                         localStorage.recordView(videoId: gameVideos[0].id)
@@ -337,7 +361,7 @@ struct GameClipsView: View {
             }
         }
     }
-    
+
     private func handleSingleTap(for video: VideoClip) {
         let player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
         if player.timeControlStatus == .playing {
@@ -348,13 +372,13 @@ struct GameClipsView: View {
             pausedVideos[video.id] = false
         }
     }
-    
+
     private func handleDoubleTapLike(for video: VideoClip, at location: CGPoint) {
         let currentLikeState = videoLikeStates[video.id] ?? false
         let newLikeState = !currentLikeState
-        
+
         videoLikeStates[video.id] = newLikeState
-        
+
         // Update local storage
         localStorage.recordInteraction(
             videoId: video.id,
@@ -362,7 +386,7 @@ struct GameClipsView: View {
             commented: false,
             shared: false
         )
-        
+
         // Heart animation
         let heartAnimation = HeartAnimation(
             id: UUID().uuidString,
@@ -370,24 +394,24 @@ struct GameClipsView: View {
             isLiked: newLikeState
         )
         heartAnimations[video.id] = heartAnimation
-        
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             heartAnimations.removeValue(forKey: video.id)
         }
     }
-    
+
     private func handleLongPress(for video: VideoClip) {
         // Show controls on long press
         let showTime = Date()
         showVideoControls[video.id] = true
         controlShowTimes[video.id] = showTime // Record when controls were shown
-        
+
         print("🎬 Long pressed to show controls for video: \(video.id)")
         print("🎬 Control show time recorded: \(showTime)")
         print("🎬 Timer will auto-hide controls at: \(Date(timeIntervalSinceNow: 3.0))")
     }
-    
-    
+
+
     private func getCurrentTime(for videoId: String) -> Double {
         // Get current time from the video that matches this ID
         if let video = self.filteredVideos.first(where: { $0.id == videoId }) {
@@ -395,7 +419,7 @@ struct GameClipsView: View {
         }
         return 0.0
     }
-    
+
     private func getDuration(for videoId: String) -> Double {
         // Get duration from the video that matches this ID
         if let video = self.filteredVideos.first(where: { $0.id == videoId }) {
@@ -404,26 +428,26 @@ struct GameClipsView: View {
         }
         return 596.0
     }
-    
+
     private func seekToTime(for videoId: String, time: Double) {
         // Seek the video that matches this ID
         if let video = self.filteredVideos.first(where: { $0.id == videoId }) {
             playerManager.seekVideo(for: video.videoURL, videoId: video.id, to: time)
         }
     }
-    
+
         private func startTimeUpdateTimer() {
             // Invalidate existing timer to prevent duplicates
             timeUpdateTimer?.invalidate()
-            
+
             print("🎬 Starting time update timer for GameClipsView")
-            
+
             timeUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
                 // Update current time for all videos
                 for video in filteredVideos {
                     let currentTime = playerManager.getCurrentTime(for: video.videoURL, videoId: video.id)
                     currentVideoTimes[video.id] = currentTime
-                    
+
                     // Check if controls should be hidden (3 seconds after showing)
                     if let showTime = controlShowTimes[video.id] {
                         let elapsed = Date().timeIntervalSince(showTime)
@@ -443,15 +467,15 @@ struct GameClipsView: View {
                 }
             }
         }
-    
+
     private func stopTimeUpdateTimer() {
         print("🎬 Stopping time update timer for GameClipsView")
         timeUpdateTimer?.invalidate()
         timeUpdateTimer = nil
     }
-    
+
 }
 
 #Preview {
-    GameClipsView(gameName: "Football")
+    GameClipsView(gameId: "demo-game-id", gameName: "Football")
 }

@@ -17,8 +17,8 @@ struct LiveVideoCell: View {
     @State private var isLiked = false
     @State private var commentText = ""
     @State private var heartAnimation: HeartAnimation?
-    @State private var viewCount: Int = 0
     @StateObject private var localStorage = LocalStorageService.shared
+    @StateObject private var liveService = LiveCommentService.shared
     @FocusState private var isCommentFieldFocused: Bool
     @State private var showSportDropdown = false
     @State private var isSummaryExpanded = false
@@ -152,7 +152,7 @@ struct LiveVideoCell: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.white.opacity(0.8))
 
-                            Text("\(viewCount)")
+                            Text("\(liveService.viewerCount)")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white)
                         }
@@ -390,9 +390,6 @@ struct LiveVideoCell: View {
             }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .onAppear {
-            startViewCountUpdates()
-        }
     }
 
     private func toggleLike() {
@@ -505,25 +502,6 @@ struct LiveVideoCell: View {
         }
     }
 
-    private func startViewCountUpdates() {
-        // Start with a random base view count
-        viewCount = Int.random(in: 150...500)
-
-        // Update view count every 3-8 seconds with random increments
-        Timer.scheduledTimer(withTimeInterval: Double.random(in: 3...8), repeats: true) { _ in
-            withAnimation(.easeInOut(duration: 0.5)) {
-                // Random increment between 1-15 viewers
-                let increment = Int.random(in: 1...15)
-                viewCount += increment
-
-                // Occasionally decrease by 1-5 viewers (people leaving)
-                if Int.random(in: 1...10) <= 2 {
-                    let decrease = Int.random(in: 1...5)
-                    viewCount = max(50, viewCount - decrease)
-                }
-            }
-        }
-    }
 
     private func formatCount(_ count: Int) -> String {
         if count >= 1_000_000 {

@@ -16,6 +16,7 @@ class LiveCommentService: ObservableObject {
     @Published var comments: [LiveComment] = []
     @Published var isLoading = false
     @Published var error: String?
+    @Published var viewerCount: Int = 0
 
     private let localStorage = LocalStorageService.shared
     private let apiClient = APIClient.shared
@@ -36,9 +37,18 @@ class LiveCommentService: ObservableObject {
         currentLiveId = liveId
         comments = []
         lastTimestamp = nil
+        viewerCount = 0
         loadComments()
         startPeriodicRefresh()
         startHeartbeat()
+        // fetch initial viewer info
+        Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                let info = try await self.apiClient.liveViewerInfo(clipId: liveId)
+                await MainActor.run { self.viewerCount = info.viewers }
+            } catch { /* ignore initial failure */ }
+        }
     }
 
     func stopCommentStream() {
@@ -47,6 +57,7 @@ class LiveCommentService: ObservableObject {
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
         currentLiveId = nil
+        viewerCount = 0
     }
 
     func postComment(_ text: String) async {
@@ -153,11 +164,19 @@ class LiveCommentService: ObservableObject {
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             Task {
-                do { _ = try await self.apiClient.liveHeartbeat(clipId: clipId, viewerId: self.viewerId) } catch { /* ignore */ }
+                do {
+                    let info = try await self.apiClient.liveHeartbeat(clipId: clipId, viewerId: self.viewerId)
+                    await MainActor.run { self.viewerCount = info.viewers }
+                } catch { /* ignore */ }
             }
         }
         // send immediately once
-        Task { do { _ = try await self.apiClient.liveHeartbeat(clipId: clipId, viewerId: self.viewerId) } catch { } }
+        Task {
+            do {
+                let info = try await self.apiClient.liveHeartbeat(clipId: clipId, viewerId: self.viewerId)
+                await MainActor.run { self.viewerCount = info.viewers }
+            } catch { }
+        }
     }
 
     private func map(dto: APIClient.LiveCommentDTO) -> LiveComment {

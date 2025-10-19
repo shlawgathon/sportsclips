@@ -248,35 +248,3 @@ struct CaptionView: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
 }
-
-#Preview {
-    ZStack {
-        Color.black
-        VStack {
-            Spacer()
-            let sample = VideoClip(
-                id: "preview",
-                videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                caption: "Preview caption",
-                sport: .football,
-                likes: 0,
-                comments: 0,
-                shares: 0,
-                createdAt: Date(),
-                s3Key: nil,
-                title: "Preview Title",
-                description: "Preview description"
-            )
-            CaptionView(
-                video: sample,
-                onGameTap: { print("Game tapped") },
-                showControls: false,
-                currentTime: 120.0,
-                duration: 596.0,
-                onSeek: { _ in },
-                onDragStart: { print("Drag started") },
-                onDragEnd: { print("Drag ended") }
-            )
-        }
-    }
-}

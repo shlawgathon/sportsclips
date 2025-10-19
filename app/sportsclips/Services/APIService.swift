@@ -40,7 +40,8 @@ class APIService {
                         createdAt: model.createdAt,
                         s3Key: model.s3Key,
                         title: model.title,
-                        description: model.description
+                        description: model.description,
+                        gameId: model.gameId
                     )
                 }
             }
@@ -78,18 +79,19 @@ class APIService {
                         let url = try await clipModel.fetchVideoURL()
                         // Return new instance with actual URL
                         return VideoClip(
-                            id: clipModel.id,
-                            videoURL: url,
-                            caption: clipModel.caption,
-                            sport: clipModel.sport,
-                            likes: clipModel.likes,
-                            comments: clipModel.comments,
-                            shares: clipModel.shares,
-                            createdAt: clipModel.createdAt,
-                            s3Key: clipModel.s3Key,
-                            title: clipModel.title,
-                            description: clipModel.description
-                        )
+            id: clipModel.id,
+            videoURL: url,
+            caption: clipModel.caption,
+            sport: clipModel.sport,
+            likes: clipModel.likes,
+            comments: clipModel.comments,
+            shares: clipModel.shares,
+            createdAt: clipModel.createdAt,
+            s3Key: clipModel.s3Key,
+            title: clipModel.title,
+            description: clipModel.description,
+            gameId: clipModel.gameId
+        )
                     }
                 }
 
@@ -131,7 +133,8 @@ class APIService {
                 createdAt: videoClip.createdAt,
                 s3Key: videoClip.s3Key,
                 title: videoClip.title,
-                description: videoClip.description
+                description: videoClip.description,
+                gameId: videoClip.gameId
             )
         } catch {
             print("Failed to fetch video clip \(clipId): \(error)")

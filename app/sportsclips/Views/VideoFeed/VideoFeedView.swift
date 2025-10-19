@@ -25,6 +25,7 @@ struct VideoFeedView: View {
     @State private var errorMessage: String?
     @State private var showingGameClips = false
     @State private var selectedGameName = ""
+    @State private var selectedGameId = ""
     @State private var currentVideoTimes: [String: Double] = [:] // Track current time for each video
     @State private var allVideos: [VideoClip] = [] // All loaded videos
     @State private var nextCursor: Int64? = nil // Cursor for paginated feed
@@ -112,7 +113,10 @@ struct VideoFeedView: View {
                                                     video: video,
                                                     onGameTap: {
                                                         self.selectedGameName = self.extractGameName(from: video)
-                                                        self.showingGameClips = true
+                                                        self.selectedGameId = video.gameId ?? ""
+                                                        if !self.selectedGameId.isEmpty {
+                                                            self.showingGameClips = true
+                                                        }
                                                     },
                                                     showControls: showVideoControls[video.id] ?? false,
                                                     currentTime: currentVideoTimes[video.id] ?? 0,
@@ -354,7 +358,7 @@ struct VideoFeedView: View {
             print("🎬 VideoFeedView disappeared - cleaned up resources")
         }
         .sheet(isPresented: $showingGameClips) {
-            GameClipsView(gameName: selectedGameName)
+            GameClipsView(gameId: selectedGameId, gameName: selectedGameName)
         }
     }
 
@@ -440,7 +444,8 @@ struct VideoFeedView: View {
             createdAt: Date(),
             s3Key: "uploads/generated-\(sport.rawValue.lowercased())-\(index).mp4",
             title: "\(sport.rawValue) Highlight \(index + 1)",
-            description: captions[index % captions.count]
+            description: captions[index % captions.count],
+            gameId: ""
         )
     }
 

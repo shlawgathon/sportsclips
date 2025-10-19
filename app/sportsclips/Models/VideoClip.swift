@@ -27,6 +27,9 @@ struct VideoClip: Identifiable, Codable {
     let title: String?
     let description: String?
 
+    // The backend game identifier this clip belongs to (YouTube videoId or similar)
+    let gameId: String?
+
     enum Sport: String, CaseIterable, Codable {
         case all = "All"
         case football = "Football"
@@ -61,8 +64,8 @@ struct VideoClip: Identifiable, Codable {
 
     /// Convert from API Clip model to VideoClip
     static func fromClip(_ clip: Clip, clipId: String) -> VideoClip {
-        // Extract sport from title/description or use a default mapping
-        let sport = extractSportFromText(clip.title + " " + clip.description)
+        // Prefer backend-provided sport mapping; fallback to extracting from text
+        let sport = Sport(rawValue: clip.sport) ?? extractSportFromText(clip.title + " " + clip.description)
 
         return VideoClip(
             id: clipId,
@@ -75,7 +78,8 @@ struct VideoClip: Identifiable, Codable {
             createdAt: Date(timeIntervalSince1970: TimeInterval(clip.createdAt)),
             s3Key: clip.s3Key,
             title: clip.title,
-            description: clip.description
+            description: clip.description,
+            gameId: clip.gameId
         )
     }
 
