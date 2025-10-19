@@ -85,44 +85,21 @@ struct VideoFeedView: View {
                 .font(.system(size: 60, weight: .light))
                 .foregroundColor(.white.opacity(0.6))
 
-            Text("No videos available")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundColor(.white.opacity(0.7))
-        }
-    }
-
-    // MARK: - Video Scroll View
-    private var videoScrollView: some View {
-        GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(filteredVideos.enumerated()), id: \.element.id) { index, video in
-                            videoCell(for: video, at: index, geometry: geometry)
-                        }
-
-                        if isLoading {
-                            loadingIndicator(geometry: geometry)
-                        }
-                    }
+                    Text("No videos available")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
                 }
-                .scrollTargetBehavior(.paging)
-                .id(selectedSport)
-                .onChange(of: currentIndex) { _, newIndex in
-                    handleIndexChange(newIndex)
-                }
-            }
-        }
-        .ignoresSafeArea()
-    }
-
-    // MARK: - Video Cell
-    private func videoCell(for video: VideoClip, at index: Int, geometry: GeometryProxy) -> some View {
-        ZStack {
-            // Full-screen video player
-            VideoPlayerView(video: video, playerManager: playerManager)
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
+            } else {
+                GeometryReader { geometry in
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(filteredVideos.enumerated()), id: \.element.id) { index, video in
+                                    ZStack {
+                                        // Full-screen video player
+                                        VideoPlayerView(video: video, playerManager: playerManager)
+                                            .frame(width: geometry.size.width, height: geometry.size.height)
+                                            .clipped()
 
             // Tap detection overlay
             tapDetectionOverlay(for: video, geometry: geometry)
@@ -185,55 +162,71 @@ struct VideoFeedView: View {
         VStack {
             Spacer()
 
-            HStack(alignment: .bottom) {
-                captionView(for: video)
-                Spacer()
-                actionButtons(for: video)
-            }
-            .padding(.bottom, 80)
-        }
-        .zIndex(2)
-    }
+                                            HStack(alignment: .bottom) {
+                                                // Caption on the left
+                                                CaptionView(
+                                                    video: video,
+                                                    onGameTap: {
+                                                        self.selectedGameName = self.extractGameName(from: video)
+                                                        self.selectedGameId = video.gameId ?? ""
+                                                        if !self.selectedGameId.isEmpty {
+                                                            self.showingGameClips = true
+                                                        }
+                                                    },
+                                                    showControls: showVideoControls[video.id] ?? false,
+                                                    currentTime: currentVideoTimes[video.id] ?? 0,
+                                                    duration: getDuration(for: video.id),
+                                                    onSeek: { time in
+                                                        seekToTime(for: video.id, time: time)
+                                                    },
+                                                    onDragStart: {
+                                                        // Keep controls visible when dragging starts
+                                                        showVideoControls[video.id] = true
+                                                        controlsVisible[video.id] = true
+                                                        // Remove the show time so controls don't auto-hide while dragging
+                                                        let removedTime = controlShowTimes.removeValue(forKey: video.id)
+                                                        print("🎬 Drag started for video: \(video.id)")
+                                                        print("🎬 Removed show time: \(removedTime?.description ?? "none")")
+                                                        print("🎬 Controls will stay visible while dragging")
+                                                    },
+                                                    onDragEnd: {
+                                                        // Reset the 3-second timer when dragging ends
+                                                        let newShowTime = Date()
+                                                        controlShowTimes[video.id] = newShowTime
+                                                        print("🎬 Drag ended for video: \(video.id)")
+                                                        print("🎬 New show time recorded: \(newShowTime)")
+                                                        print("🎬 Timer will auto-hide controls at: \(Date(timeIntervalSinceNow: 3.0))")
+                                                    }
+                                                )
 
-    // MARK: - Caption View
-    private func captionView(for video: VideoClip) -> some View {
-        CaptionView(
-            video: video,
-            gameName: selectedGameName,
-            onGameTap: {
-                handleGameTap(for: video)
-            },
-            showControls: showVideoControls[video.id] ?? false,
-            currentTime: currentVideoTimes[video.id] ?? 0,
-            duration: getDuration(for: video.id),
-            onSeek: { time in
-                seekToTime(for: video.id, time: time)
-            },
-            onDragStart: {
-                handleDragStart(for: video)
-            },
-            onDragEnd: {
-                handleDragEnd(for: video)
-            }
-        )
-    }
+                                                Spacer()
 
-    // MARK: - Action Buttons
-    private func actionButtons(for video: VideoClip) -> some View {
-        VideoOverlayView(
-            video: video,
-            isLiked: videoLikeStates[video.id] ?? false,
-            onLikeChanged: { newLikedState in
-                videoLikeStates[video.id] = newLikedState
-            }
-        )
-    }
+                                                // Action buttons on the right
+                                                VideoOverlayView(
+                                                    video: video,
+                                                    isLiked: videoLikeStates[video.id] ?? false,
+                                                    onLikeChanged: { newLikedState in
+                                                        videoLikeStates[video.id] = newLikedState
+                                                    }
+                                                )
+                                            }
+                                            .padding(.bottom, 80) // Same gap for both states
+                                        }
+                                        .zIndex(2) // Above everything else
 
-    // MARK: - Paused Video Overlay
-    private func pausedVideoOverlay(for video: VideoClip) -> some View {
-        ZStack {
-            Color.black.opacity(0.2)
-                .ignoresSafeArea()
+                                        // Heart animation overlay
+                                        if let heartAnimation = heartAnimations[video.id] {
+                                            HeartAnimationView(animation: heartAnimation)
+                                                .zIndex(3) // Above everything
+                                        }
+
+                                        // Custom video controls (now integrated into CaptionView)
+
+                                        // Glass play button overlay (shows when paused)
+                                        if pausedVideos[video.id] == true {
+                                            ZStack {
+                                                Color.black.opacity(0.2)
+                                                    .ignoresSafeArea()
 
             Button(action: {
                 playerManager.playVideo(for: video.videoURL, videoId: video.id)
@@ -270,44 +263,116 @@ struct VideoFeedView: View {
                 )
                 .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
 
-            Image(systemName: "play.fill")
-                .font(.system(size: 40, weight: .medium))
-                .foregroundColor(.white)
-                .offset(x: 3)
-        }
-    }
+                                                        // Play triangle icon
+                                                        Image(systemName: "play.fill")
+                                                            .font(.system(size: 40, weight: .medium))
+                                                            .foregroundColor(.white)
+                                                            .offset(x: 3) // Slight offset to center the triangle
+                                                    }
+                                                }
+                                                .buttonStyle(PlainButtonStyle())
+                                            }
+                                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                                            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: pausedVideos[video.id])
+                                            .zIndex(5) // Above everything including controls
+                                        }
+                                    }
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .id(index)
+                                    .onAppear {
+                                        // Update current index and play video
+                                        currentIndex = index
+                                        currentVideoIndex = index
 
-    // MARK: - Loading Indicator
-    private func loadingIndicator(geometry: GeometryProxy) -> some View {
-        HStack {
-            Spacer()
-            ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                .scaleEffect(1.2)
-            Spacer()
-        }
-        .frame(width: geometry.size.width, height: 100)
-    }
+                                        // Auto-play the video when it becomes visible
+                                        print("🎬 Video appeared: \(video.id) at index \(index)")
+                                        playerManager.playVideo(for: video.videoURL, videoId: video.id)
+                                        localStorage.recordView(videoId: video.id)
+                                        Task { await apiService.markViewed(clipId: video.id) }
 
-    // MARK: - Sport Filter Bar
-    private var sportFilterBar: some View {
-        VStack {
-            HStack {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(VideoClip.Sport.allCases, id: \.self) { sport in
-                            SportBubble(
-                                sport: sport,
-                                isSelected: selectedSport == sport,
-                                action: {
-                                    handleSportSelection(sport)
+        // Reset pause state when video becomes visible
+                                        pausedVideos[video.id] = false
+
+                                        // Check if we need to load more videos (when approaching end)
+                                        if index >= filteredVideos.count - 3 && !isLoadingMore {
+                                            preloadMoreVideos()
+                                        }
+
+                                        // Load like state from local storage
+                                        if let interaction = localStorage.getInteraction(for: video.id) {
+                                            videoLikeStates[video.id] = interaction.liked
+                                            print("🔄 VideoFeedView: Loaded like state \(interaction.liked) for video \(video.id)")
+                                        }
+
+                                        // Load more videos if near end
+                                        if index >= filteredVideos.count - 2 && !isLoadingMore {
+                                            preloadMoreVideos()
+                                        }
+                                    }
+        .onDisappear {
+            // Pause video when it disappears
+            playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
+
+            // Clean up control states to prevent UI breaking
+            showVideoControls[video.id] = false
+            controlsVisible[video.id] = false
+            controlShowTimes.removeValue(forKey: video.id)
+            heartAnimations[video.id] = nil
+        }
                                 }
-                            )
+
+                                // Loading indicator at bottom
+                                if isLoading {
+                                    HStack {
+                                        Spacer()
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(1.2)
+                                        Spacer()
+                                    }
+                                    .frame(width: geometry.size.width, height: 100)
+                                }
+                            }
+                        }
+                        .scrollTargetBehavior(.paging)
+                        .id(selectedSport) // Force ScrollView to refresh when sport changes
+                        .onChange(of: currentIndex) { _, newIndex in
+                            // Play the new current video (VideoPlayerManager will handle pausing others)
+                            if newIndex < filteredVideos.count {
+                                let currentVideo = filteredVideos[newIndex]
+                                print("🎬 Scroll detected - switching to video index: \(newIndex), ID: \(currentVideo.id)")
+                                playerManager.playVideo(for: currentVideo.videoURL, videoId: currentVideo.id)
+                                localStorage.recordView(videoId: currentVideo.id)
+
+                                // Reset pause state for the new current video
+                                pausedVideos[currentVideo.id] = false
+                            }
                         }
                     }
-                    .padding(.horizontal, 16)
                 }
-                .padding(.top, 8)
+                .ignoresSafeArea()
+            }
+
+            // Sports filter bubbles at top
+            VStack {
+                HStack {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(VideoClip.Sport.allCases, id: \.self) { sport in
+                                SportBubble(
+                                    sport: sport,
+                                    isSelected: selectedSport == sport,
+                                    action: {
+                                        print("🎬 Sport selected: \(sport.rawValue)")
+                                        selectedSport = sport
+                                        filterVideos()
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .padding(.top, 8) // Minimal top padding
 
                 Spacer()
             }
@@ -766,30 +831,20 @@ struct SportBubble: View {
                 Text(sport.rawValue)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(isSelected ? .white : .white.opacity(0.7))
+                    .lineLimit(1) // Ensure text doesn't wrap
+                    .minimumScaleFactor(0.8) // Allow slight scaling for long text
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(bubbleBackground)
-        }
-        .buttonStyle(PlainButtonStyle())
-        .scaleEffect(isSelected ? 1.08 : (isPressed ? 0.95 : 1.0))
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: isSelected)
-        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isPressed)
-        .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
-            isPressed = pressing
-        }, perform: {})
-    }
-
-    @ViewBuilder
-    private var bubbleBackground: some View {
-        ZStack {
-            // Outer glow for selected state
-            if isSelected {
-                Capsule()
-                    .fill(.white.opacity(0.1))
-                    .blur(radius: 6)
-                    .scaleEffect(1.1)
-            }
+            .background(
+                ZStack {
+                    // Outer glow for selected state
+                    if isSelected {
+                        Capsule()
+                            .fill(.white.opacity(0.1))
+                            .blur(radius: 6)
+                            .scaleEffect(1.1)
+                    }
 
             // Main capsule
             Capsule()

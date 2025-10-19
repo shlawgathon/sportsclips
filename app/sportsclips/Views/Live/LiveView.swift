@@ -27,113 +27,113 @@ struct LiveView: View {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     .scaleEffect(1.5)
+                    .ignoresSafeArea()
             } else if filteredVideos.isEmpty {
-                // Empty state with exact same structure as LiveVideoCell
-                ZStack {
-                    // Top bar - exact same structure as LiveVideoCell
-                    VStack(spacing: 0) {
-                        HStack(spacing: 12) {
-                            // Sport filter button (round, on the left)
-                            Button(action: {
-                                withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0.1)) {
-                                    showSportDropdown.toggle()
-                                }
-                            }) {
-                                Image(systemName: "line.3.horizontal.decrease")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .rotationEffect(.degrees(showSportDropdown ? 180 : 0))
-                                    .scaleEffect(showSportDropdown ? 1.1 : 1.0)
-                            }
-                            .foregroundColor(.white)
-                            .padding(8)
-                            .background(
-                                ZStack {
-                                    // Liquid glass background with bubble effect
+                // Empty state mirrors LiveVideoCell layout but greyed out
+                GeometryReader { geometry in
+                    ZStack {
+                        // Full-screen placeholder background (muted)
+                        Rectangle()
+                            .fill(LinearGradient(
+                                colors: [.gray.opacity(0.45), .black.opacity(0.6)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ))
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .ignoresSafeArea()
+
+                        // Top bar - same structure/order as LiveVideoCell
+                        VStack {
+                            HStack(spacing: 12) {
+                                // Sport tag with LIVE indicator (greyed)
+                                HStack(spacing: 6) {
                                     Circle()
-                                        .fill(.ultraThinMaterial)
-                                        .overlay(
-                                            Circle()
-                                                .stroke(
-                                                    LinearGradient(
-                                                        colors: [
-                                                            .white.opacity(showSportDropdown ? 0.5 : 0.3),
-                                                            .white.opacity(showSportDropdown ? 0.3 : 0.1)
-                                                        ],
-                                                        startPoint: .topLeading,
-                                                        endPoint: .bottomTrailing
-                                                    ),
-                                                    lineWidth: showSportDropdown ? 2.0 : 1.5
-                                                )
-                                        )
-                                        .shadow(
-                                            color: .white.opacity(showSportDropdown ? 0.4 : 0.2), 
-                                            radius: showSportDropdown ? 12 : 8, 
-                                            x: 0, 
-                                            y: showSportDropdown ? 4 : 2
-                                        )
-                                        .scaleEffect(showSportDropdown ? 1.05 : 1.0)
+                                        .fill(.gray.opacity(0.6))
+                                        .frame(width: 8, height: 8)
 
-                                    // White tint overlay with bubble effect
-                                    Circle()
-                                        .fill(.white.opacity(showSportDropdown ? 0.2 : 0.1))
-                                        .scaleEffect(showSportDropdown ? 1.1 : 1.0)
+                                    if UIImage(systemName: selectedSport.icon) != nil {
+                                        Image(systemName: selectedSport.icon)
+                                            .font(.system(size: 13, weight: .medium))
+                                    } else {
+                                        Text(selectedSport.rawValue)
+                                            .font(.system(size: 12, weight: .semibold))
+                                    }
+
+                                    Text("LIVE")
+                                        .font(.system(size: 11, weight: .bold))
                                 }
-                            )
+                                .foregroundColor(.white.opacity(0.6))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    ZStack {
+                                        Capsule()
+                                            .fill(.ultraThinMaterial)
+                                            .overlay(
+                                                Capsule()
+                                                    .stroke(
+                                                        LinearGradient(
+                                                            colors: [
+                                                                .gray.opacity(0.4),
+                                                                .gray.opacity(0.2)
+                                                            ],
+                                                            startPoint: .topLeading,
+                                                            endPoint: .bottomTrailing
+                                                        ),
+                                                        lineWidth: 1.5
+                                                    )
+                                            )
+                                            .shadow(color: .gray.opacity(0.2), radius: 8, x: 0, y: 2)
 
-                            // Sport tag with LIVE indicator (greyed out)
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(.gray.opacity(0.6))
-                                    .frame(width: 8, height: 8)
+                                        Capsule()
+                                            .fill(.gray.opacity(0.2))
+                                    }
+                                )
 
-                                // Show icon if it exists in SF Symbols, otherwise show sport name
-                                if UIImage(systemName: selectedSport.icon) != nil {
-                                    Image(systemName: selectedSport.icon)
-                                        .font(.system(size: 13, weight: .medium))
-                                } else {
-                                    Text(selectedSport.rawValue)
-                                        .font(.system(size: 12, weight: .semibold))
+                                // Sport filter (same height as tag)
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        showSportDropdown.toggle()
+                                    }
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "line.3.horizontal.decrease")
+                                            .font(.system(size: 13, weight: .medium))
+                                        Text(selectedSport == .all ? "All" : selectedSport.rawValue)
+                                            .font(.system(size: 11, weight: .bold))
+                                    }
                                 }
+                                .foregroundColor(.white.opacity(0.9))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    ZStack {
+                                        Capsule()
+                                            .fill(.ultraThinMaterial)
+                                            .overlay(
+                                                Capsule()
+                                                    .stroke(
+                                                        LinearGradient(
+                                                            colors: [
+                                                                .white.opacity(0.25),
+                                                                .white.opacity(0.1)
+                                                            ],
+                                                            startPoint: .topLeading,
+                                                            endPoint: .bottomTrailing
+                                                        ),
+                                                        lineWidth: 1.5
+                                                    )
+                                            )
+                                            .shadow(color: .white.opacity(0.15), radius: 8, x: 0, y: 2)
 
-                                Text("LIVE")
-                                    .font(.system(size: 11, weight: .bold))
-                            }
-                            .frame(minWidth: 80)
-                            .foregroundColor(.white.opacity(0.6))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                ZStack {
-                                    // Liquid glass background (greyed out)
-                                    Capsule()
-                                        .fill(.ultraThinMaterial)
-                                        .overlay(
-                                            Capsule()
-                                                .stroke(
-                                                    LinearGradient(
-                                                        colors: [
-                                                            .gray.opacity(0.4),
-                                                            .gray.opacity(0.2)
-                                                        ],
-                                                        startPoint: .topLeading,
-                                                        endPoint: .bottomTrailing
-                                                    ),
-                                                    lineWidth: 1.5
-                                                )
-                                        )
-                                        .shadow(color: .gray.opacity(0.2), radius: 8, x: 0, y: 2)
+                                        Capsule()
+                                            .fill(.white.opacity(0.08))
+                                    }
+                                )
 
-                                    // Grey tint overlay
-                                    Capsule()
-                                        .fill(.gray.opacity(0.2))
-                                }
-                            )
+                                Spacer()
 
-                            Spacer()
-
-                            // Views and likes in column (greyed out)
-                            VStack(spacing: 8) {
-                                // View count
+                                // View count (greyed)
                                 HStack(spacing: 4) {
                                     Image(systemName: "eye.fill")
                                         .font(.system(size: 14, weight: .medium))
@@ -151,7 +151,7 @@ struct LiveView: View {
                                         .stroke(.white.opacity(0.1), lineWidth: 1)
                                 )
 
-                                // Like counter
+                                // Like counter (greyed)
                                 HStack(spacing: 4) {
                                     Image(systemName: "heart")
                                         .font(.system(size: 16, weight: .medium))
@@ -169,117 +169,110 @@ struct LiveView: View {
                                         .stroke(.white.opacity(0.1), lineWidth: 1)
                                 )
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 50)
+
+                            Spacer()
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 50)
+                        .zIndex(2)
 
-                        Spacer()
-                    }
-                    .zIndex(2)
+                        // Bottom overlays - comments/summary and input (greyed content)
+                        VStack(spacing: 0) {
+                            Spacer()
 
-                    // Overlay content - exact same structure as LiveVideoCell
-                    VStack(spacing: 0) {
-                        Spacer()
+                            VStack(alignment: .leading, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "bubble.left.and.bubble.right")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(.white.opacity(0.4))
 
-                        // Left side - Caption and live comments (greyed out)
-                        VStack(alignment: .leading, spacing: 8) {
-                            // Live comments section (greyed out) - same structure as LiveVideoCell
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "bubble.left.and.bubble.right")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.4))
+                                        Text("Live Comments")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundColor(.white.opacity(0.6))
+                                    }
 
-                                    Text("Live Comments")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(.white.opacity(0.6))
+                                    Text("No comments available")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.5))
+                                        .padding(.top, 4)
                                 }
+                                .frame(maxHeight: 180)
 
-                                Text("No comments available")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.5))
-                                    .padding(.top, 4)
-                            }
-                            .frame(maxHeight: 180)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "livephoto")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(.white.opacity(0.4))
 
-                            // Live summary section (greyed out) - matches LiveVideoCell structure
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "livephoto")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.4))
+                                        Text("Live Summary")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundColor(.white.opacity(0.6))
 
-                                    Text("Live Summary")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundColor(.white.opacity(0.6))
+                                        Text("-")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(.white.opacity(0.5))
 
-                                    Text("-")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.5))
+                                        Text("...")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(.white.opacity(0.5))
 
-                                    Text("...")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.5))
-
-                                    Spacer()
+                                        Spacer()
+                                    }
                                 }
                             }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
 
-                        // Comment input with share button (greyed out)
-                        HStack(spacing: 10) {
-                            // Share button (greyed out)
-                            Button(action: {}) {
-                                Image(systemName: "square.and.arrow.up")
-                                    .font(.system(size: 20, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.4))
-                                    .padding(10)
-                                    .background(.ultraThinMaterial.opacity(0.5), in: Circle())
-                                    .overlay(
-                                        Circle()
-                                            .stroke(.white.opacity(0.1), lineWidth: 1)
-                                    )
-                            }
-                            .disabled(true)
-
-                            // Comment input field (greyed out)
-                            TextField("Comments disabled", text: .constant(""))
-                                .font(.system(size: 14))
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                .background(.ultraThinMaterial.opacity(0.5), in: RoundedRectangle(cornerRadius: 24))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 24)
-                                        .stroke(.white.opacity(0.2), lineWidth: 1.5)
-                                )
-                                .foregroundColor(.white.opacity(0.5))
+                            HStack(spacing: 10) {
+                                Button(action: {}) {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.4))
+                                        .padding(10)
+                                        .background(.ultraThinMaterial.opacity(0.5), in: Circle())
+                                        .overlay(
+                                            Circle()
+                                                .stroke(.white.opacity(0.1), lineWidth: 1)
+                                        )
+                                }
                                 .disabled(true)
 
-                            // Send button (greyed out)
-                            Button(action: {}) {
-                                Image(systemName: "arrow.up.circle.fill")
-                                    .font(.system(size: 20, weight: .medium))
-                                    .foregroundColor(.gray.opacity(0.5))
-                                    .padding(10)
-                                    .background(.ultraThinMaterial.opacity(0.5), in: Circle())
+                                TextField("Comments disabled", text: .constant(""))
+                                    .font(.system(size: 14))
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .background(.ultraThinMaterial.opacity(0.5), in: RoundedRectangle(cornerRadius: 24))
                                     .overlay(
-                                        Circle()
-                                            .stroke(.white.opacity(0.1), lineWidth: 1)
+                                        RoundedRectangle(cornerRadius: 24)
+                                            .stroke(.white.opacity(0.2), lineWidth: 1.5)
                                     )
+                                    .foregroundColor(.white.opacity(0.5))
+                                    .disabled(true)
+
+                                Button(action: {}) {
+                                    Image(systemName: "arrow.up.circle.fill")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .foregroundColor(.gray.opacity(0.5))
+                                        .padding(10)
+                                        .background(.ultraThinMaterial.opacity(0.5), in: Circle())
+                                        .overlay(
+                                            Circle()
+                                                .stroke(.white.opacity(0.1), lineWidth: 1)
+                                        )
+                                }
+                                .disabled(true)
                             }
-                            .disabled(true)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
+                            .padding(.bottom, 104) // Exactly 10px gap to menu bar
+                            .background(
+                                Rectangle()
+                                    .fill(.black.opacity(0.3))
+                            )
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 88) // Same gap as highlights page
-                        .background(
-                            Rectangle()
-                                .fill(.black.opacity(0.3))
-                        )
+                        .zIndex(20)
                     }
-                    .zIndex(20) // Same zIndex as LiveVideoCell
                 }
             } else {
                 // TikTok-style vertical scroll - each scroll is full screen
@@ -384,7 +377,7 @@ struct LiveView: View {
                         .scaleEffect(showSportDropdown ? 1.0 : 0.8)
                         .opacity(showSportDropdown ? 1.0 : 0.0)
                         .padding(.leading, 16)
-                        .padding(.top, 100) // Position below the top bar
+                        .padding(.top, 85) // Position below the top bar (moved up 15px)
 
                         Spacer()
                     }

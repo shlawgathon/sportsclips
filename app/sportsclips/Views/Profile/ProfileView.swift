@@ -2,7 +2,7 @@
 //  ProfileView.swift
 //  sportsclips
 //
-//  User profile placeholder
+//  User profile with tabbed history views
 //
 
 import SwiftUI
@@ -16,6 +16,7 @@ struct ProfileView: View {
     @State private var tempName: String = ""
     @State private var selectedItem: PhotosPickerItem?
     @State private var isUpdatingProfile = false
+    @State private var selectedTabIndex = 0
 
     var body: some View {
         ZStack {
@@ -27,119 +28,178 @@ struct ProfileView: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 30) {
-                Spacer()
-
-                // Profile picture + picker
-                if let user = localStorage.userProfile {
-                    VStack(spacing: 16) {
-                        ZStack(alignment: .bottomTrailing) {
-                            // Avatar circle with either image or placeholder
-                            if let base64 = user.profilePictureBase64,
-                               let data = Data(base64Encoded: base64),
-                               let uiImage = UIImage(data: data) {
-                                Image(uiImage: uiImage)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 100, height: 100)
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 3))
-                            } else {
-                                Circle()
-                                    .fill(.ultraThinMaterial)
-                                    .frame(width: 100, height: 100)
-                                    .overlay(
-                                        Image(systemName: "person.fill")
-                                            .font(.system(size: 40))
-                                            .foregroundColor(.white.opacity(0.6))
-                                    )
-                                    .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 3))
-                            }
-
-                            PhotosPicker(selection: $selectedItem, matching: .images) {
-                                Image(systemName: "camera.fill")
-                                    .font(.system(size: 14, weight: .bold))
+            VStack(spacing: 0) {
+                // Top section with profile info and logout button
+                VStack(spacing: 20) {
+                    // Logout button in top right
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            showingLogoutConfirmation = true
+                        }) {
+                            VStack(spacing: 4) {
+                                Image(systemName: "rectangle.portrait.and.arrow.right")
+                                    .font(.system(size: 16, weight: .bold))
                                     .foregroundColor(.white)
-                                    .padding(8)
-                                    .background(Color.blue, in: Circle())
-                                    .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 1))
-                            }
-                            .offset(x: 6, y: 6)
-                            .disabled(isUpdatingProfile)
-                        }
-
-                        VStack(spacing: 8) {
-                            if isEditingName {
-                                HStack(spacing: 8) {
-                                    TextField("Display name", text: $tempName)
-                                        .textFieldStyle(PlainTextFieldStyle())
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.white.opacity(0.1))
-                                        .cornerRadius(8)
-                                        .foregroundColor(.white)
-
-                                    Button(action: saveName) {
-                                        if isUpdatingProfile { ProgressView().tint(.white) } else { Text("Save").bold() }
-                                    }
-                                    .disabled(isUpdatingProfile || tempName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                                    Button("Cancel") { isEditingName = false }
-                                        .foregroundColor(.gray)
-                                }
-                            } else {
-                                Text(user.username)
-                                    .font(.system(size: 28, weight: .bold))
+                                
+                                Text("Logout")
+                                    .font(.system(size: 10, weight: .medium))
                                     .foregroundColor(.white)
-                                    .onTapGesture {
-                                        tempName = user.username
-                                        isEditingName = true
-                                    }
-                                    .overlay(
-                                        Text("Tap to edit")
-                                            .font(.system(size: 10, weight: .medium))
-                                            .foregroundColor(.white.opacity(0.5))
-                                            .offset(y: 22)
-                                    , alignment: .bottom)
                             }
-
-                            Text(user.email)
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(.white.opacity(0.7))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.red.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(.red.opacity(0.4), lineWidth: 1)
+                            )
                         }
+                        .buttonStyle(PlainButtonStyle())
                     }
-                } else {
-                    Text("Profile")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+
+                    // Profile picture + picker
+                    if let user = localStorage.userProfile {
+                        VStack(spacing: 16) {
+                            ZStack(alignment: .bottomTrailing) {
+                                // Avatar circle with either image or placeholder
+                                if let base64 = user.profilePictureBase64,
+                                   let data = Data(base64Encoded: base64),
+                                   let uiImage = UIImage(data: data) {
+                                    Image(uiImage: uiImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 80, height: 80)
+                                        .clipShape(Circle())
+                                        .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 2))
+                                } else {
+                                    Circle()
+                                        .fill(.ultraThinMaterial)
+                                        .frame(width: 80, height: 80)
+                                        .overlay(
+                                            Image(systemName: "person.fill")
+                                                .font(.system(size: 32))
+                                                .foregroundColor(.white.opacity(0.6))
+                                        )
+                                        .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 2))
+                                }
+
+                                PhotosPicker(selection: $selectedItem, matching: .images) {
+                                    Image(systemName: "camera.fill")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(6)
+                                        .background(Color.blue, in: Circle())
+                                        .overlay(Circle().stroke(.white.opacity(0.4), lineWidth: 1))
+                                }
+                                .offset(x: 4, y: 4)
+                                .disabled(isUpdatingProfile)
+                            }
+
+                            VStack(spacing: 8) {
+                                if isEditingName {
+                                    HStack(spacing: 8) {
+                                        ZStack(alignment: .trailing) {
+                                            TextField("Display name", text: $tempName)
+                                                .textFieldStyle(PlainTextFieldStyle())
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 8)
+                                                .padding(.trailing, 40) // Make room for character count
+                                                .background(Color.white.opacity(0.1))
+                                                .cornerRadius(8)
+                                                .foregroundColor(.white)
+                                                .onChange(of: tempName) { newValue in
+                                                    // Limit to 30 characters
+                                                    if newValue.count > 30 {
+                                                        tempName = String(newValue.prefix(30))
+                                                    }
+                                                }
+                                            
+                                            // Character count inside the text field
+                                            Text("\(tempName.count)/30")
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundColor(.white.opacity(0.5))
+                                                .padding(.trailing, 8)
+                                        }
+
+                                        Button(action: saveName) {
+                                            if isUpdatingProfile { 
+                                                ProgressView().tint(.white) 
+                                            } else { 
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 16, weight: .bold))
+                                                    .foregroundColor(.green)
+                                            }
+                                        }
+                                        .disabled(isUpdatingProfile || tempName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                                        Button(action: { isEditingName = false }) {
+                                            Image(systemName: "xmark")
+                                                .font(.system(size: 16, weight: .bold))
+                                                .foregroundColor(.white)
+                                        }
+                                    }
+                                    .padding(.horizontal, 40)
+                                } else {
+                                    HStack(spacing: 8) {
+                                        Text(user.username)
+                                            .font(.system(size: 24, weight: .bold))
+                                            .foregroundColor(.white)
+                                        
+                                        Button(action: {
+                                            tempName = user.username
+                                            isEditingName = true
+                                        }) {
+                                            Image(systemName: "pencil")
+                                                .font(.system(size: 16, weight: .medium))
+                                                .foregroundColor(.white.opacity(0.7))
+                                        }
+                                    }
+                                    .padding(.horizontal, 40)
+                                }
+
+                                Text(user.email)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+                        }
+                    } else {
+                        Text("Profile")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.white)
+                    }
                 }
+                .padding(.bottom, 20)
 
-                Text("Profile features coming soon...")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
+                // Segmented control for tabs
+                LiquidGlassSegmentedControl(
+                    selectedIndex: $selectedTabIndex,
+                    items: [
+                        SegmentedItem(icon: "heart.fill", title: "Likes", tag: 0),
+                        SegmentedItem(icon: "message.fill", title: "Comments", tag: 1),
+                        SegmentedItem(icon: "eye.fill", title: "Views", tag: 2)
+                    ],
+                    onSelectionChanged: { index in
+                        selectedTabIndex = index
+                    }
+                )
+                .frame(height: 56)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
 
-                Spacer()
-
-                // Logout button
-                Button(action: {
-                    showingLogoutConfirmation = true
-                }) {
-                    Text("Logout")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(.red.opacity(0.3), in: RoundedRectangle(cornerRadius: 25))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 25)
-                                .stroke(.red.opacity(0.4), lineWidth: 1)
-                        )
+                // Tab content
+                TabView(selection: $selectedTabIndex) {
+                    LikeHistoryView()
+                        .tag(0)
+                    
+                    CommentHistoryView()
+                        .tag(1)
+                    
+                    ViewHistoryView()
+                        .tag(2)
                 }
-                .buttonStyle(PlainButtonStyle())
-                .padding(.horizontal, 40)
-                .padding(.bottom, 100)
+                .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
             }
         }
         .confirmationDialog("Are you sure you want to logout?", isPresented: $showingLogoutConfirmation) {

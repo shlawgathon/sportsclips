@@ -175,7 +175,7 @@ struct CaptionView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16) // Keep horizontal padding for caption text
         .padding(.top, 8)         // Further reduced top padding for even spacing
-        .padding(.bottom, 8)      // Reduced bottom padding to move controls down
+        .padding(.bottom, 0)      // Align bottom with GameBubble to match right-side buttons
         .background(
             ZStack {
                 // Sticky background with stronger opacity
