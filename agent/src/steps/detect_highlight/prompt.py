@@ -4,15 +4,20 @@ Prompts and tool schemas for highlight detection.
 
 from google.genai import types
 
-HIGHLIGHT_DETECTION_PROMPT = """Almost everything is a highlight moment. For everything that you see just call it a highlight moment and respond"""
+HIGHLIGHT_DETECTION_PROMPT = """
+You are an agent that is receiving clips of a sports game to decide whether they contain the entirety of a highlight moment.
+You will receive overlapping clips, so it is not pivotal to choose this clip as the definitive highlight.
 
+Your job is to analyze this video clip and determine if it contains a highlight moment worthy of posting on short form media.
 
-TEMP_HIGHLIGHT_DETECTION_PROMPT = """Analyze this video clip and determine if it contains a highlight moment worthy of saving. A highlight is: - An exciting play or action (goals, dunks, touchdowns, impressive saves, etc.) - A key moment in the game (close calls, dramatic moments) - Exceptional athletic performance - Crowd reactions to big moments
+A highlight is:
+- An exciting play or action (goals, dunks, touchdowns, impressive saves, etc.)
+- A key moment in the game (close calls, dramatic moments)
+- Exceptional athletic performance
+- Crowd reactions to big moments
+
 NOT a highlight:
-- Standard gameplay with no notable action
-- Replays of commercials or commentary
-- Setup moments before action
-- Timeout or break periods
+- Replays of commercials or commentary. Take special care to avoid commercials as they are not at all relevant to the game.
 - Half of a game highlight. If there is only half a highlight, then it is not worth selecting.
 
 Use the report_highlight_detection function to provide your assessment."""
