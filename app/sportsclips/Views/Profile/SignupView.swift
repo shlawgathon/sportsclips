@@ -33,8 +33,7 @@ struct SignupView: View {
                 Spacer()
                 
                 // Logo
-                AnimatedSportsLogo()
-                    .scaleEffect(0.75)
+                ScrollableSportsLogo()
                 
                 Text("Join Sports Clips")
                     .font(.system(size: 28, weight: .bold))
