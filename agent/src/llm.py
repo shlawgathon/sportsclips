@@ -725,17 +725,16 @@ class GeminiAgent:
 
 class GeminiLiveClient:
     """
-    Live API client for real-time audio streaming with Gemini.
+    Simplified Live API client for real-time audio streaming with Gemini.
 
-    This client supports bidirectional streaming with video input and audio output,
-    designed for live commentary scenarios. Uses the gemini-2.5-flash-native-audio-preview
-    model for high-quality audio generation.
+    This client provides a straightforward interface for sending video frames
+    and receiving audio chunks, inspired by the Google Cloud DevRel ping-pong example.
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-live-2.5-flash-preview",
+        model_name: str = "gemini-2.0-flash-exp",
         system_instruction: Optional[str] = None,
     ):
         """
@@ -743,7 +742,7 @@ class GeminiLiveClient:
 
         Args:
             api_key: Google API key for Gemini (optional, can use env var)
-            model_name: Name of the Gemini model to use (default: gemini-live-2.5-flash-preview)
+            model_name: Name of the Gemini model to use
             system_instruction: Optional system instruction for the model behavior
         """
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -759,17 +758,9 @@ class GeminiLiveClient:
         if self.api_key:
             self._client = genai.Client(api_key=self.api_key)
 
-    async def connect(
-        self,
-        response_modalities: Optional[list[str]] = None,
-        **config_kwargs: Any,
-    ) -> "GeminiLiveClient":
+    async def connect(self) -> "GeminiLiveClient":
         """
         Establish WebSocket connection to the Live API.
-
-        Args:
-            response_modalities: List of desired output modalities (default: ["AUDIO"])
-            **config_kwargs: Additional configuration parameters
 
         Returns:
             Self for context manager usage
@@ -780,18 +771,19 @@ class GeminiLiveClient:
         if not self._client:
             raise ValueError("Client not initialized. Please provide an API key.")
 
-        # Build configuration using types.LiveConnectConfig
-        # Convert string modalities to types.Modality enum values
-        modalities_list = response_modalities or ["AUDIO"]
-        modality_objects = [getattr(types.Modality, m) for m in modalities_list]
-
+        # Build configuration with context window compression
         config = types.LiveConnectConfig(
-            response_modalities=modality_objects,
-            system_instruction=self.system_instruction,
-            **config_kwargs,
+            responseModalities=[types.Modality.AUDIO],
+            systemInstruction=self.system_instruction,
+            contextWindowCompression=types.ContextWindowCompressionConfig(
+                trigger_tokens=8000,  # Trigger compression at 8k tokens
+                sliding_window=types.SlidingWindow(
+                    targetTokens=4000  # Keep last 4k tokens when compressing
+                ),
+            ),
         )
 
-        # Store the connection context manager and enter it
+        # Create connection context and enter it
         self._connection_context = self._client.aio.live.connect(
             model=self.model_name, config=config
         )
@@ -806,6 +798,10 @@ class GeminiLiveClient:
             self._session = None
             self._connection_context = None
 
+    def is_connected(self) -> bool:
+        """Check if the client is currently connected."""
+        return self._session is not None
+
     async def __aenter__(self) -> "GeminiLiveClient":
         """Context manager entry."""
         await self.connect()
@@ -815,15 +811,13 @@ class GeminiLiveClient:
         """Context manager exit."""
         await self.disconnect()
 
-    async def send_video_frame(
-        self, frame_image: Union[Image.Image, bytes], mime_type: str = "image/jpeg"
-    ) -> None:
+    async def send(self, prompt: str, end_of_turn: bool = True) -> None:
         """
-        Send video frame as an image to the model.
+        Send a text prompt to the model.
 
         Args:
-            frame_image: PIL Image or image bytes
-            mime_type: MIME type of the image data (default: image/jpeg)
+            prompt: Text prompt or instruction
+            end_of_turn: Whether to signal end of turn (default: True)
 
         Raises:
             ValueError: If session is not connected
@@ -831,12 +825,74 @@ class GeminiLiveClient:
         if not self._session:
             raise ValueError("Session not connected. Call connect() first.")
 
-        # If bytes, convert to PIL Image
-        if isinstance(frame_image, bytes):
-            frame_image = Image.open(io.BytesIO(frame_image))
+        await self._session.send(input=prompt, end_of_turn=end_of_turn)
 
-        # Send as image (video parameter accepts PIL.Image)
-        await self._session.send_realtime_input(video=frame_image)
+    async def send_frame(self, frame: Union[Image.Image, bytes]) -> None:
+        """
+        Send a single video frame to the model.
+
+        Args:
+            frame: PIL Image or image bytes
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        # Convert bytes to PIL Image if needed
+        if isinstance(frame, bytes):
+            frame = Image.open(io.BytesIO(frame))
+
+        # Send frame with a small delay to avoid overwhelming the API
+        await self._session.send_realtime_input(video=frame)
+        await asyncio.sleep(0.1)  # Small delay to prevent overwhelming connection
+
+    async def receive_audio_chunks(self) -> AsyncIterator[bytes]:
+        """
+        Receive audio chunks from the model as an async generator.
+
+        Yields:
+            bytes: Audio data chunks in PCM format
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        logger.info("[GeminiLiveClient] Starting to receive audio chunks...")
+        turn = self._session.receive()
+        logger.info("[GeminiLiveClient] Created receive turn, waiting for responses...")
+
+        response_count = 0
+        async for response in turn:
+            response_count += 1
+            logger.info(f"[GeminiLiveClient] Received response #{response_count}, type: {type(response).__name__}")
+
+            # Extract audio data from response
+            if hasattr(response, "data") and response.data is not None:
+                logger.info(f"[GeminiLiveClient] Found audio data (size: {len(response.data)} bytes)")
+                yield response.data
+            elif hasattr(response, "server_content"):
+                logger.info("[GeminiLiveClient] Response has server_content")
+                server_content = response.server_content
+                if hasattr(server_content, "model_turn"):
+                    logger.info("[GeminiLiveClient] server_content has model_turn")
+                    model_turn = server_content.model_turn
+                    if hasattr(model_turn, "parts"):
+                        logger.info(f"[GeminiLiveClient] model_turn has {len(model_turn.parts)} parts")
+                        for part in model_turn.parts:
+                            if hasattr(part, "inline_data") and part.inline_data:
+                                logger.info(f"[GeminiLiveClient] Found inline_data (size: {len(part.inline_data.data)} bytes)")
+                                yield part.inline_data.data
+            else:
+                logger.info(f"[GeminiLiveClient] Response has no audio data. Attributes: {dir(response)}")
+
+        logger.info(f"[GeminiLiveClient] receive_audio_chunks() completed after {response_count} responses")
 
     async def send_audio_chunk(
         self, audio_data: bytes, sample_rate: int = 16000

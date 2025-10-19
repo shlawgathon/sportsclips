@@ -1,8 +1,6 @@
-import json
 import logging
 import shlex
 import subprocess
-import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -26,76 +24,6 @@ def get_cookies_path() -> str | None:
         return str(cookies_path)
 
     return None
-
-
-def is_live_stream(url: str) -> bool:
-    """
-    Check if a URL points to a live stream.
-
-    Args:
-        url: The video URL to check
-
-    Returns:
-        bool: True if the stream is live, False otherwise
-    """
-    # Create isolated cache directory for this yt-dlp instance
-    temp_cache_dir = tempfile.mkdtemp(prefix=f"ytdlp_cache_{uuid.uuid4().hex[:8]}_")
-
-    try:
-        cmd = [
-            "yt-dlp",
-            "--dump-json",
-            "--playlist-items",
-            "1",
-            "--no-warnings",
-            "--quiet",
-            "--cache-dir",
-            temp_cache_dir,  # Use isolated cache directory
-            "--no-part",  # Don't use .part files to avoid collisions
-        ]
-
-        # Add cookies if available
-        cookies_path = get_cookies_path()
-        if cookies_path:
-            cmd.extend(["--cookies", cookies_path])
-
-        cmd.append(url)
-
-        # Use temp_cache_dir as cwd to prevent -Frag files from appearing in project directory
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=temp_cache_dir,
-        )
-
-        if result.returncode != 0:
-            # If we can't determine, assume not live
-            return False
-
-        # Parse the JSON output
-        try:
-            info = json.loads(result.stdout)
-            # Check various indicators that a stream is live
-            is_live = info.get("is_live", False)
-            live_status = info.get("live_status", "")
-
-            return is_live or live_status in ["is_live", "is_upcoming"]
-        except json.JSONDecodeError:
-            return False
-
-    except Exception:
-        # If anything fails, assume not live
-        return False
-    finally:
-        # Cleanup isolated cache directory
-        try:
-            import shutil
-
-            shutil.rmtree(temp_cache_dir)
-        except Exception:
-            pass
 
 
 def stream_and_chunk_live(
@@ -583,45 +511,3 @@ def stream_and_chunk_video(
             shutil.rmtree(temp_dir)
         except Exception:
             pass
-
-
-def stream_video_to_file(
-    url: str,
-    output_path: str,
-    chunk_size: int = 1024 * 1024,
-    live_from_start: bool = False,
-) -> None:
-    """
-    Stream video from URL and save to file.
-
-    Args:
-        url: The video URL to stream from
-        output_path: Path to save the video file
-        chunk_size: Size of each chunk to read/write in bytes
-        live_from_start: For live streams, start from beginning instead of live edge
-    """
-    with open(output_path, "wb") as f:
-        for chunk in stream_video_chunks(
-            url, chunk_size=chunk_size, live_from_start=live_from_start
-        ):
-            f.write(chunk)
-            # You could add progress tracking here
-            print(f"Downloaded {f.tell()} bytes...", end="\r")
-    print(f"\nVideo saved to {output_path}")
-
-
-if __name__ == "__main__":
-    # Example usage
-    if len(sys.argv) < 2:
-        print("Usage: python stream.py <video_url> [output_file]")
-        sys.exit(1)
-
-    video_url = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else "output.mp4"
-
-    print(f"Streaming video from: {video_url}")
-    try:
-        stream_video_to_file(video_url, output_file)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)

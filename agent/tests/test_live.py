@@ -79,7 +79,7 @@ class TestExtractFramesFromChunk:
             mock_img = MagicMock(spec=Image.Image)
             mock_image_open.return_value = mock_img
 
-            frames = extract_frames_from_chunk(chunk_data, fps=2.0)
+            _frames = extract_frames_from_chunk(chunk_data, fps=2.0)
 
             # Verify FPS parameter is passed to ffmpeg
             ffmpeg_cmd = mock_run.call_args[0][0]
@@ -324,7 +324,7 @@ class TestProcessChunksWithLiveApi:
         with (
             patch(
                 "src.live.extract_frames_from_chunk", return_value=[mock_frame]
-            ) as mock_extract,
+            ) as _mock_extract,
             patch("src.live.concatenate_chunks", return_value=b"concat_video"),
             patch("src.live.stitch_audio_video", return_value=b"stitched_video"),
             patch("src.live.create_fragmented_mp4", return_value=b"fragmented_video"),
@@ -348,6 +348,7 @@ class TestProcessChunksWithLiveApi:
             await process_chunks_with_live_api(
                 chunks=chunks,
                 websocket=mock_ws,
+                video_url="https://example.com/video.mp4",
                 prompt="Test prompt",
                 fps=1.0,
             )
@@ -358,8 +359,21 @@ class TestProcessChunksWithLiveApi:
             # Verify frames were sent
             assert mock_client.send_video_frame.call_count == len(chunks)
 
-            # Verify websocket send was called with fragmented video
+            # Verify websocket send was called with JSON message
             assert mock_ws.send.called
+            sent_message = mock_ws.send.call_args[0][0]
+
+            # Parse and validate JSON message
+            import json
+
+            msg = json.loads(sent_message)
+            assert msg["type"] == "live_commentary"
+            assert "video_data" in msg["data"]
+            assert (
+                msg["data"]["metadata"]["src_video_url"]
+                == "https://example.com/video.mp4"
+            )
+            assert msg["data"]["metadata"]["format"] == "fragmented_mp4"
 
     @pytest.mark.asyncio
     async def test_process_chunks_with_custom_parameters(self):
@@ -395,6 +409,7 @@ class TestProcessChunksWithLiveApi:
             await process_chunks_with_live_api(
                 chunks=chunks,
                 websocket=mock_ws,
+                video_url="https://example.com/video.mp4",
                 system_instruction=custom_instruction,
                 prompt=custom_prompt,
                 fps=2.0,
@@ -426,6 +441,7 @@ class TestProcessChunksWithLiveApi:
                 await process_chunks_with_live_api(
                     chunks=chunks,
                     websocket=mock_ws,
+                    video_url="https://example.com/video.mp4",
                 )
 
     @pytest.mark.asyncio
@@ -460,6 +476,7 @@ class TestProcessChunksWithLiveApi:
                 await process_chunks_with_live_api(
                     chunks=chunks,
                     websocket=mock_ws,
+                    video_url="https://example.com/video.mp4",
                 )
 
             # Verify disconnect was called despite error
@@ -702,7 +719,11 @@ class TestFullWebSocketIntegration:
             try:
                 # Receive data from the live API processing
                 async for message in websocket:
-                    if isinstance(message, bytes):
+                    # Messages are now JSON strings
+                    if isinstance(message, str):
+                        received_data.append(message.encode("utf-8"))
+                        print(f"Server received message ({len(message)} chars)")
+                    elif isinstance(message, bytes):
                         received_data.append(message)
                         print(f"Server received {len(message)} bytes")
             except websockets.exceptions.ConnectionClosed:
@@ -759,6 +780,7 @@ class TestFullWebSocketIntegration:
                             await process_chunks_with_live_api(
                                 chunks=chunks,
                                 websocket=websocket,
+                                video_url="https://example.com/test_video.mp4",
                                 system_instruction="Test commentator",
                                 prompt="Test prompt",
                                 fps=1.0,
@@ -772,72 +794,80 @@ class TestFullWebSocketIntegration:
             # Verify we received data
             assert len(received_data) > 0, "Should have received data via WebSocket"
 
-            total_bytes = sum(len(data) for data in received_data)
             print("\n✅ WebSocket integration test passed!")
             print(f"   Received {len(received_data)} message(s)")
-            print(f"   Total bytes: {total_bytes}")
+
+            # Parse JSON message
+            import base64
+            import json
+
+            first_message = received_data[0].decode("utf-8")
+            msg = json.loads(first_message)
+
+            print(f"   Message type: {msg['type']}")
+            assert msg["type"] == "live_commentary", (
+                "Should receive live_commentary message"
+            )
+
+            # Extract video data from JSON
+            video_data = base64.b64decode(msg["data"]["video_data"])
+            print(f"   Total video bytes: {len(video_data)}")
 
             # Verify the data looks like a valid MP4 (should start with ftyp)
-            if received_data:
-                first_chunk = received_data[0]
-                # Check for MP4 signature (ftyp box)
-                assert b"ftyp" in first_chunk[:100], "Data should be valid MP4 format"
-                print("   ✅ Validated MP4 format signature")
+            assert b"ftyp" in video_data[:100], "Data should be valid MP4 format"
+            print("   ✅ Validated MP4 format signature")
 
-                # Save the received video for manual inspection
-                output_dir = Path(__file__).parent.parent / "video_output"
-                output_dir.mkdir(parents=True, exist_ok=True)
-                output_file = output_dir / "websocket_test_output.mp4"
+            # Save the received video for manual inspection
+            output_dir = Path(__file__).parent.parent / "video_output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_file = output_dir / "websocket_test_output.mp4"
 
-                with open(output_file, "wb") as f:
-                    for data in received_data:
-                        f.write(data)
+            with open(output_file, "wb") as f:
+                f.write(video_data)
 
-                print(f"   💾 Saved output to: {output_file}")
+            print(f"   💾 Saved output to: {output_file}")
 
-                # Verify the output has both video and audio streams
-                try:
-                    import json
+            # Verify the output has both video and audio streams
+            try:
+                ffprobe_cmd = [
+                    "ffprobe",
+                    "-v",
+                    "quiet",
+                    "-print_format",
+                    "json",
+                    "-show_streams",
+                    str(output_file),
+                ]
 
-                    ffprobe_cmd = [
-                        "ffprobe",
-                        "-v",
-                        "quiet",
-                        "-print_format",
-                        "json",
-                        "-show_streams",
-                        str(output_file),
+                result = subprocess.run(
+                    ffprobe_cmd, capture_output=True, text=True, timeout=10
+                )
+
+                if result.returncode == 0:
+                    probe_data = json.loads(result.stdout)
+                    streams = probe_data.get("streams", [])
+
+                    video_streams = [
+                        s for s in streams if s.get("codec_type") == "video"
+                    ]
+                    audio_streams = [
+                        s for s in streams if s.get("codec_type") == "audio"
                     ]
 
-                    result = subprocess.run(
-                        ffprobe_cmd, capture_output=True, text=True, timeout=10
+                    print(f"   📺 Video streams: {len(video_streams)}")
+                    print(f"   🎵 Audio streams: {len(audio_streams)}")
+
+                    assert len(video_streams) > 0, (
+                        "Should have at least one video stream"
+                    )
+                    assert len(audio_streams) > 0, (
+                        "Should have at least one audio stream"
                     )
 
-                    if result.returncode == 0:
-                        probe_data = json.loads(result.stdout)
-                        streams = probe_data.get("streams", [])
+                    print("   ✅ Verified both audio and video streams present!")
 
-                        video_streams = [
-                            s for s in streams if s.get("codec_type") == "video"
-                        ]
-                        audio_streams = [
-                            s for s in streams if s.get("codec_type") == "audio"
-                        ]
-
-                        print(f"   📺 Video streams: {len(video_streams)}")
-                        print(f"   🎵 Audio streams: {len(audio_streams)}")
-
-                        assert len(video_streams) > 0, (
-                            "Should have at least one video stream"
-                        )
-                        assert len(audio_streams) > 0, (
-                            "Should have at least one audio stream"
-                        )
-
-                        print("   ✅ Verified both audio and video streams present!")
-
-                except Exception as e:
-                    print(f"   ⚠️  Could not verify streams with ffprobe: {e}")
+            except Exception as e:
+                print(f"   ⚠️  Could not verify streams with ffprobe: {e}")
 
         finally:
             # Clean up server

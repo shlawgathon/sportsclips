@@ -68,23 +68,6 @@ def create_complete_message(src_video_url: str) -> str:
     return json.dumps(message)
 
 
-def process_video_and_generate_snippets(video_url: str, ws: Any, is_live: bool) -> None:
-    """Programmatic entry used by tests; runs the async pipeline if needed."""
-    import asyncio as _asyncio
-    import inspect
-
-    result = pipeline.process_video_url(
-        video_url=video_url,
-        ws=ws,
-        is_live=is_live,
-        create_snippet_message=create_snippet_message,
-        create_complete_message=create_complete_message,
-        create_error_message=create_error_message,
-    )
-    if inspect.isawaitable(result):
-        _asyncio.run(result)
-
-
 SENTINEL_DONE = "__PIPELINE_DONE__"
 
 
