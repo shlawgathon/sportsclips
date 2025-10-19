@@ -26,9 +26,10 @@ struct CaptionView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Sport category
             HStack(spacing: 8) {
+                // Always show icon for consistent spacing, but make it invisible if not needed
                 Image(systemName: video.sport.icon)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundColor(video.sport == .all ? .clear : .white.opacity(0.8))
 
                 Text(video.sport.rawValue)
                     .font(.system(size: 14, weight: .medium))
@@ -41,7 +42,7 @@ struct CaptionView: View {
                 // Show title if available
                 if let title = video.title, !title.isEmpty {
                     Text(title)
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(.white)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)

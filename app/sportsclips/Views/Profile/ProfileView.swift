@@ -57,7 +57,6 @@ struct ProfileView: View {
                         .buttonStyle(PlainButtonStyle())
                     }
                     .padding(.horizontal, 20)
-                    .padding(.top, 10)
 
                     // Profile picture + picker
                     if let user = localStorage.userProfile {
@@ -202,7 +201,7 @@ struct ProfileView: View {
                 .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
             }
         }
-        .confirmationDialog("Are you sure you want to logout?", isPresented: $showingLogoutConfirmation) {
+        .confirmationDialog("Confirm Logout", isPresented: $showingLogoutConfirmation) {
             Button("Logout", role: .destructive) {
                 Task {
                     await handleLogout()

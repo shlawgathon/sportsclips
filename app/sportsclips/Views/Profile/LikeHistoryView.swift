@@ -61,18 +61,6 @@ struct LikeHistoryView: View {
                 }
             }
 
-            // Recently liked text at bottom
-            if !videos.isEmpty {
-                HStack {
-                    Spacer()
-                    Text("Recently liked videos")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-            }
         }
         .padding(.bottom, 100) // Account for tab bar
         .onAppear {

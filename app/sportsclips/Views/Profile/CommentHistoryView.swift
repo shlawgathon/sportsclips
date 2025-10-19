@@ -57,18 +57,6 @@ struct CommentHistoryView: View {
                 }
             }
             
-            // Recently commented text at bottom
-            if !comments.isEmpty {
-                HStack {
-                    Spacer()
-                    Text("Recently commented videos")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-            }
         }
         .padding(.bottom, 100) // Account for tab bar
         .onAppear {
