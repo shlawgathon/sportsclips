@@ -14,15 +14,19 @@ import logging
 import multiprocessing as mp
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 
 from .pipeline import create_highlight_pipeline
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
+# Initialize FastAPI apuv run uvicorn src.api:app --host 0.0.0.0 --port 8000 --reloadp
 app = FastAPI(title="SportsClips Agent (ASGI)")
 
 # Initialize a pipeline instance for direct programmatic calls and tests
@@ -66,8 +70,8 @@ def create_complete_message(src_video_url: str) -> str:
 
 def process_video_and_generate_snippets(video_url: str, ws: Any, is_live: bool) -> None:
     """Programmatic entry used by tests; runs the async pipeline if needed."""
-    import inspect
     import asyncio as _asyncio
+    import inspect
 
     result = pipeline.process_video_url(
         video_url=video_url,
@@ -136,7 +140,9 @@ async def video_snippets_ws(
 
     ctx = mp.get_context("spawn")
     q: mp.Queue[str] = ctx.Queue()
-    proc = ctx.Process(target=_pipeline_worker, args=(video_url, is_live, q), daemon=True)
+    proc = ctx.Process(
+        target=_pipeline_worker, args=(video_url, is_live, q), daemon=True
+    )
     proc.start()
 
     try:
