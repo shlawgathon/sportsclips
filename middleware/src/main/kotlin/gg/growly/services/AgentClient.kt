@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonIgnoreUnknownKeys
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.*
@@ -27,6 +28,9 @@ class AgentClient(application: Application) {
         install(WebSockets)
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     }
+
+    // Lenient JSON instance for manual decoding of incoming frames
+    private val jsonLenient = Json { ignoreUnknownKeys = true }
 
     // Gate to ensure only one processVideo request is allowed to proceed
     // until it receives a first response from the agent.
@@ -54,6 +58,7 @@ class AgentClient(application: Application) {
         val description: String? = null
     )
 
+    @JsonIgnoreUnknownKeys
     @Serializable
     data class LiveChunkMeta(
         val src_video_url: String,
@@ -62,7 +67,7 @@ class AgentClient(application: Application) {
         val audio_sample_rate: Int,
         val commentary_length_bytes: Long,
         val video_length_bytes: Long,
-        val num_chunks_processed: Int
+        val num_chunks_processed: Int? = null
     )
 
     suspend fun processVideo(
@@ -106,6 +111,12 @@ class AgentClient(application: Application) {
                     when (frame) {
                         is Frame.Text -> {
                             val txt = frame.readText()
+                            // Log raw websocket text for debugging (truncate to avoid massive logs)
+                            if (txt.length <= 2000) {
+                                log.debug("[AgentClient] WS TEXT: ${txt}")
+                            } else {
+                                log.debug("[AgentClient] WS TEXT (truncated ${txt.length} chars -> 2000): ${txt.take(2000)}…")
+                            }
                             log.debug("[AgentClient] Received text frame length=${txt.length}")
                             try {
                                 val element = Json.parseToJsonElement(txt)
@@ -159,7 +170,7 @@ class AgentClient(application: Application) {
                                             } else {
                                                 try {
                                                     val bytes = Base64.getDecoder().decode(base64)
-                                                    val meta = Json.decodeFromJsonElement(LiveChunkMeta.serializer(), metaEl)
+                                                    val meta = jsonLenient.decodeFromJsonElement(LiveChunkMeta.serializer(), metaEl)
                                                     onLiveChunk(bytes, meta)
                                                 } catch (t: Throwable) {
                                                     log.warn("[AgentClient] Failed to decode live chunk: ${t.message}")

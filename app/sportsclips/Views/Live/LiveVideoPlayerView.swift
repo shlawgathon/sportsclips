@@ -18,7 +18,9 @@ struct LiveVideoPlayerView: View {
     // Live streaming
     @State private var liveService = LiveVideoService()
     @State private var queuePlayer: AVQueuePlayer?
-    @State private var liveBuffer: [URL] = []
+    // Buffer chunks by their chunk_number to ensure ordered playback
+    @State private var liveBufferMap: [Int: URL] = [:]
+    @State private var nextExpectedChunk: Int = 1
     @State private var isLivePlaying = false
 
     var body: some View {
@@ -85,6 +87,8 @@ struct LiveVideoPlayerView: View {
             // Live stream path using YouTube source URL from gameId
             queuePlayer = AVQueuePlayer()
             isLivePlaying = false
+            nextExpectedChunk = 1
+            liveBufferMap.removeAll()
             connectLive()
         } else {
             player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
@@ -97,17 +101,10 @@ struct LiveVideoPlayerView: View {
         let sourceUrl = "https://www.youtube.com/watch?v=\(gameId)"
         let baseWS = APIClient.shared.baseWebSocketURL()
         liveService.connect(baseURL: baseWS, videoURL: sourceUrl, isLive: true, onChunk: { data, meta in
-            // Write chunk to temp file and enqueue
+            // Write chunk to temp file and buffer by chunk number
             if let url = writeChunkToTemp(data: data, chunk: meta.chunk_number) {
-                liveBuffer.append(url)
-                // Start playback after 3 buffered chunks
-                if liveBuffer.count >= 3 && isLivePlaying == false {
-                    startLivePlayback()
-                }
-                // If already playing, append to queue
-                if isLivePlaying, let item = makeItem(url: url) {
-                    queuePlayer?.insert(item, after: nil)
-                }
+                liveBufferMap[meta.chunk_number] = url
+                flushContiguousChunksToQueue(minInitialBuffer: 2)
             }
         }, onSnippet: { _, _ in
             // Optional: handle highlight snippets (ignored in MVP)
@@ -116,15 +113,26 @@ struct LiveVideoPlayerView: View {
         })
     }
 
-    private func startLivePlayback() {
-        guard queuePlayer != nil else { return }
-        isLivePlaying = true
-        // Enqueue initial buffer
-        for url in liveBuffer {
-            if let item = makeItem(url: url) { queuePlayer?.insert(item, after: nil) }
+    // Flush any contiguous sequence of buffered chunks starting from nextExpectedChunk into the queue.
+    // If not yet playing, require a minimum initial buffer before starting playback.
+    private func flushContiguousChunksToQueue(minInitialBuffer: Int) {
+        guard let _ = queuePlayer else { return }
+        // If not started, ensure we have at least the minimum buffered
+        if !isLivePlaying && liveBufferMap.count < minInitialBuffer { return }
+
+        var enqueued = 0
+        while let url = liveBufferMap[nextExpectedChunk] {
+            if let item = makeItem(url: url) {
+                queuePlayer?.insert(item, after: nil)
+                enqueued += 1
+            }
+            liveBufferMap.removeValue(forKey: nextExpectedChunk)
+            nextExpectedChunk += 1
         }
-        liveBuffer.removeAll()
-        queuePlayer?.play()
+        if !isLivePlaying && enqueued >= minInitialBuffer {
+            isLivePlaying = true
+            queuePlayer?.play()
+        }
     }
 
     private func disconnectLive() {
@@ -133,8 +141,8 @@ struct LiveVideoPlayerView: View {
         queuePlayer?.removeAllItems()
         queuePlayer = nil
         // Cleanup temp files
-        for url in liveBuffer { try? FileManager.default.removeItem(at: url) }
-        liveBuffer.removeAll()
+        for url in liveBufferMap.values { try? FileManager.default.removeItem(at: url) }
+        liveBufferMap.removeAll()
         isLivePlaying = false
     }
 

@@ -31,14 +31,22 @@ class VideoPlayerManager: ObservableObject {
             return nil
         }
     }
-
     func getPlayer(for videoURL: String, videoId: String) -> AVPlayer {
         // Use videoId as key to ensure each video has its own player instance
         if let existingPlayer = players[videoId] {
             return existingPlayer
         }
 
-        let player = AVPlayer(url: URL(string: videoURL)!)
+        // Safely create URL and handle nil case
+        guard let url = URL(string: videoURL) else {
+            print("⚠️ Invalid video URL for videoId \(videoId): '\(videoURL)'")
+            // Return an empty player to avoid crashes
+            let emptyPlayer = AVPlayer()
+            players[videoId] = emptyPlayer
+            return emptyPlayer
+        }
+
+        let player = AVPlayer(url: url)
         players[videoId] = player
 
         // Configure player for manual control (no auto-looping)

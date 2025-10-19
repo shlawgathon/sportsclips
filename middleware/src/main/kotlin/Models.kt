@@ -45,7 +45,15 @@ data class LiveVideo(
     val streamUrl: String,
     val isLive: Boolean = true,
     val liveChatId: String? = null,
-    val createdAt: Long = Instant.now().epochSecond
+    val createdAt: Long = Instant.now().epochSecond,
+    // Progress fields for live generation/tracking
+    val updatedAt: Long? = null,
+    val lastChunkNumber: Int? = null,
+    val numChunksProcessed: Int? = null,
+    val format: String? = null,
+    val audioSampleRate: Int? = null,
+    val commentaryLengthBytes: Long? = null,
+    val videoLengthBytes: Long? = null
 ) {
     fun toDocument(): Document = Document.parse(json.encodeToString(this))
 
@@ -211,6 +219,9 @@ class LiveVideoService(private val database: MongoDatabase) {
     init {
         try { database.createCollection("live_videos") } catch (_: Exception) {}
         collection = database.getCollection("live_videos")
+        try { collection.createIndex(Indexes.ascending("streamUrl"), IndexOptions().unique(true)) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.descending("updatedAt")) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.descending("createdAt")) } catch (_: Exception) {}
     }
 
     suspend fun listAll(): List<Pair<String, LiveVideo>> = withContext(Dispatchers.IO) {
@@ -225,6 +236,68 @@ class LiveVideoService(private val database: MongoDatabase) {
         val doc = live.toDocument()
         collection.insertOne(doc)
         doc["_id"].toString()
+    }
+
+    suspend fun upsertByStreamUrl(initial: LiveVideo): String = withContext(Dispatchers.IO) {
+        val existing = collection.find(Filters.eq("streamUrl", initial.streamUrl)).first()
+        if (existing != null) {
+            val id = existing["_id"].toString()
+            val current = LiveVideo.fromDocument(existing)
+            val updated = current.copy(
+                title = if (initial.title.isNotBlank()) initial.title else current.title,
+                description = if (initial.description.isNotBlank()) initial.description else current.description,
+                isLive = initial.isLive,
+                liveChatId = initial.liveChatId ?: current.liveChatId,
+                updatedAt = System.currentTimeMillis() / 1000
+            )
+            collection.findOneAndReplace(Filters.eq("_id", ObjectId(id)), updated.toDocument())
+            id
+        } else {
+            val doc = initial.copy(updatedAt = System.currentTimeMillis() / 1000).toDocument()
+            collection.insertOne(doc)
+            doc["_id"].toString()
+        }
+    }
+
+    suspend fun updateProgressByStreamUrl(
+        streamUrl: String,
+        lastChunkNumber: Int,
+        numChunksProcessed: Int?,
+        format: String,
+        audioSampleRate: Int,
+        commentaryLengthBytes: Long,
+        videoLengthBytes: Long
+    ) = withContext(Dispatchers.IO) {
+        val existing = collection.find(Filters.eq("streamUrl", streamUrl)).first()
+        if (existing != null) {
+            val id = existing["_id"].toString()
+            val current = LiveVideo.fromDocument(existing)
+            val updated = current.copy(
+                lastChunkNumber = lastChunkNumber,
+                numChunksProcessed = numChunksProcessed ?: current.numChunksProcessed,
+                format = format,
+                audioSampleRate = audioSampleRate,
+                commentaryLengthBytes = commentaryLengthBytes,
+                videoLengthBytes = videoLengthBytes,
+                updatedAt = System.currentTimeMillis() / 1000
+            )
+            collection.findOneAndReplace(Filters.eq("_id", ObjectId(id)), updated.toDocument())
+        } else {
+            val doc = LiveVideo(
+                title = "",
+                description = "",
+                streamUrl = streamUrl,
+                isLive = true,
+                updatedAt = System.currentTimeMillis() / 1000,
+                lastChunkNumber = lastChunkNumber,
+                numChunksProcessed = numChunksProcessed,
+                format = format,
+                audioSampleRate = audioSampleRate,
+                commentaryLengthBytes = commentaryLengthBytes,
+                videoLengthBytes = videoLengthBytes
+            ).toDocument()
+            collection.insertOne(doc)
+        }
     }
 }
 

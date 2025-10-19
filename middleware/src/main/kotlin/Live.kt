@@ -119,6 +119,21 @@ data class LiveListItemDTO(
 fun Route.liveRoutes() {
     // Live videos collection
     get("/live-videos") {
+        val log = call.application.log
+        val started = System.currentTimeMillis()
+        log.info("[LiveAPI] GET /live-videos start")
+        val defaultId = "8Gx4dpC2smo"
+        val defaultItem = LiveListItemDTO(
+            id = defaultId,
+            live = LiveVideoDTO(
+                title = "Liverpool vs Manchester United - Live Stream",
+                description = "Default live stream",
+                streamUrl = "https://www.youtube.com/watch?v=$defaultId",
+                isLive = true,
+                liveChatId = null,
+                createdAt = System.currentTimeMillis()
+            )
+        )
         val apiKey = gg.growly.services.Env.get("YOUTUBE_API_KEY")
         val yt = gg.growly.services.YouTubeKtorService(apiKey ?: "")
         try {
@@ -140,9 +155,15 @@ fun Route.liveRoutes() {
                     )
                 )
             }
-            call.respond(items)
+            val dt = System.currentTimeMillis() - started
+            log.info("[LiveAPI] GET /live-videos success count=${'$'}{items.size} durationMs=${'$'}dt")
+            // Always include default at the front
+            call.respond(listOf(defaultItem) + items)
         } catch (t: Throwable) {
-            call.respondText("Failed to fetch live videos: ${t.message}", status = io.ktor.http.HttpStatusCode.InternalServerError)
+            val dt = System.currentTimeMillis() - started
+            log.warn("[LiveAPI] GET /live-videos error: ${'$'}{t.message} durationMs=${'$'}dt", t)
+            // On failure, still return the default item
+            call.respond(listOf(defaultItem))
         } finally {
             yt.close()
         }
