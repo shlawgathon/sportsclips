@@ -6,6 +6,7 @@ fixed-duration chunks, and process them with a sliding window for highlight dete
 """
 
 import asyncio
+import inspect
 import logging
 import subprocess
 import tempfile
@@ -13,7 +14,6 @@ import uuid
 from collections import deque
 from pathlib import Path
 from typing import Any, Callable
-import inspect
 
 from .stream import stream_and_chunk_video
 
@@ -37,6 +37,7 @@ class SlidingWindowPipeline:
         window_size: int = 7,
         slide_step: int = 2,
         format_selector: str = "best[ext=mp4]/best",
+        debug_dir: Path | None = None,
     ):
         """
         Initialize the sliding window pipeline.
@@ -46,22 +47,19 @@ class SlidingWindowPipeline:
             window_size: Number of chunks in each window (default: 7, which is 14 seconds)
             slide_step: Number of chunks to slide when no highlight found (default: 2)
             format_selector: yt-dlp format selector for video quality
+            debug_dir: Directory to save intermediate debug videos (default: None)
         """
         self.base_chunk_duration = base_chunk_duration
         self.window_size = window_size
         self.slide_step = slide_step
         self.format_selector = format_selector
+        self.debug_dir = debug_dir
+        self.debug_window_count = 0
 
         # Three processing steps
-        self.detect_step: (
-            Callable[[list[bytes], dict[str, Any]], Any] | None
-        ) = None
-        self.trim_step: (
-            Callable[[list[bytes], dict[str, Any]], Any] | None
-        ) = None
-        self.caption_step: (
-            Callable[[bytes, dict[str, Any]], Any] | None
-        ) = None
+        self.detect_step: Callable[[list[bytes], dict[str, Any]], Any] | None = None
+        self.trim_step: Callable[[list[bytes], dict[str, Any]], Any] | None = None
+        self.caption_step: Callable[[bytes, dict[str, Any]], Any] | None = None
 
     def set_detect_step(
         self, func: Callable[[list[bytes], dict[str, Any]], Any]
@@ -86,9 +84,7 @@ class SlidingWindowPipeline:
         """
         self.trim_step = func
 
-    def set_caption_step(
-        self, func: Callable[[bytes, dict[str, Any]], Any]
-    ) -> None:
+    def set_caption_step(self, func: Callable[[bytes, dict[str, Any]], Any]) -> None:
         """
         Set the caption step function.
 
@@ -96,6 +92,31 @@ class SlidingWindowPipeline:
             func: Function that takes (video_data, metadata) and returns (title, description, metadata)
         """
         self.caption_step = func
+
+    def _save_debug_video(
+        self, video_data: bytes, step_name: str, window_num: int
+    ) -> None:
+        """
+        Save a debug video if debug mode is enabled.
+
+        Args:
+            video_data: Video data to save
+            step_name: Name of the processing step (e.g., "1_input", "2_detected", "3_trimmed", "4_final")
+            window_num: Window number for filename
+        """
+        if self.debug_dir is None or not video_data:
+            return
+
+        try:
+            filename = f"window_{window_num:04d}_{step_name}.mp4"
+            filepath = self.debug_dir / filename
+            with open(filepath, "wb") as f:
+                f.write(video_data)
+            logger.info(
+                f"  [DEBUG] Saved {step_name}: {filename} ({len(video_data):,} bytes)"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save debug video {step_name}: {e}")
 
     def _concatenate_chunks(self, chunks: list[bytes]) -> bytes:
         """
@@ -144,7 +165,9 @@ class SlidingWindowPipeline:
                 "0",
                 "-i",
                 str(concat_list),
-                "-c",
+                "-c:v",
+                "copy",
+                "-c:a",
                 "copy",
                 str(output_file),
             ]
@@ -286,6 +309,31 @@ class SlidingWindowPipeline:
                     f"{(current_window_start + self.window_size) * self.base_chunk_duration}s)"
                 )
 
+                # Save input window chunks for debug
+                if self.debug_dir is not None:
+                    # Save individual chunks
+                    for i, chunk in enumerate(window_chunks):
+                        chunk_filename = (
+                            f"window_{self.debug_window_count:04d}_0_chunk_{i:02d}.mp4"
+                        )
+                        chunk_filepath = self.debug_dir / chunk_filename
+                        try:
+                            with open(chunk_filepath, "wb") as f:
+                                f.write(chunk)
+                            logger.debug(
+                                f"  [DEBUG] Saved chunk {i}: {chunk_filename} ({len(chunk):,} bytes)"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to save debug chunk {i}: {e}")
+
+                    # Save concatenated input window
+                    input_video = await asyncio.to_thread(
+                        self._concatenate_chunks, window_chunks
+                    )
+                    self._save_debug_video(
+                        input_video, "1_input_window", self.debug_window_count
+                    )
+
                 # Create metadata for this window
                 metadata: dict[str, Any] = {
                     "src_video_url": video_url,
@@ -313,6 +361,17 @@ class SlidingWindowPipeline:
                     logger.warning("No detect_step configured, skipping detection")
 
                 if is_highlight:
+                    # Save detected highlight window for debug
+                    if self.debug_dir is not None:
+                        detected_video = await asyncio.to_thread(
+                            self._concatenate_chunks, window_chunks
+                        )
+                        self._save_debug_video(
+                            detected_video,
+                            "2_detected_highlight",
+                            self.debug_window_count,
+                        )
+
                     # Step 2: Trim to actual highlight portions
                     trimmed_video = b""
                     if self.trim_step:
@@ -322,6 +381,11 @@ class SlidingWindowPipeline:
                         else:
                             trimmed_video, metadata = trim_result
                         logger.info(f"Trimmed video size: {len(trimmed_video)} bytes")
+
+                        # Save trimmed video for debug
+                        self._save_debug_video(
+                            trimmed_video, "3_trimmed", self.debug_window_count
+                        )
                     else:
                         # Default: concatenate all chunks in window
                         logger.warning(
@@ -329,6 +393,11 @@ class SlidingWindowPipeline:
                         )
                         trimmed_video = await asyncio.to_thread(
                             self._concatenate_chunks, window_chunks
+                        )
+
+                        # Save concatenated video for debug
+                        self._save_debug_video(
+                            trimmed_video, "3_trimmed_fallback", self.debug_window_count
                         )
 
                     # Step 3: Generate caption and description
@@ -350,6 +419,11 @@ class SlidingWindowPipeline:
                             "No caption_step configured, using default caption"
                         )
 
+                    # Save final video before sending for debug
+                    self._save_debug_video(
+                        trimmed_video, "4_final_output", self.debug_window_count
+                    )
+
                     # Send the highlight
                     snippet_msg = create_snippet_message(
                         trimmed_video,
@@ -361,6 +435,9 @@ class SlidingWindowPipeline:
 
                     highlight_count += 1
                     logger.info(f"Sent highlight {highlight_count} to client")
+
+                    # Increment debug window counter for highlights
+                    self.debug_window_count += 1
 
                     # Slide by entire window to avoid duplicate highlights
                     last_processed_position = current_window_start
@@ -389,6 +466,7 @@ def create_highlight_pipeline(
     base_chunk_duration: int = 2,
     window_size: int = 7,
     slide_step: int = 2,
+    debug_dir: Path | None = None,
 ) -> SlidingWindowPipeline:
     """
     Create a sliding window pipeline configured for highlight detection.
@@ -403,6 +481,7 @@ def create_highlight_pipeline(
         base_chunk_duration: Duration of each base chunk in seconds (default: 2)
         window_size: Number of chunks per window (default: 7)
         slide_step: Chunks to slide when no highlight (default: 2)
+        debug_dir: Directory to save intermediate debug videos (default: None)
 
     Returns:
         Configured SlidingWindowPipeline instance
@@ -417,6 +496,7 @@ def create_highlight_pipeline(
         base_chunk_duration=base_chunk_duration,
         window_size=window_size,
         slide_step=slide_step,
+        debug_dir=debug_dir,
     )
 
     # Set up the three processing steps

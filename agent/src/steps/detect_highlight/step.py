@@ -160,7 +160,9 @@ def _concatenate_chunks(chunks: list[bytes]) -> bytes:
             "0",
             "-i",
             str(concat_list),
-            "-c",
+            "-c:v",
+            "copy",
+            "-c:a",
             "copy",
             str(output_file),
         ]

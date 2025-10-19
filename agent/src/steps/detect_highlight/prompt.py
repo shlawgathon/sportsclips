@@ -4,14 +4,10 @@ Prompts and tool schemas for highlight detection.
 
 from google.genai import types
 
-HIGHLIGHT_DETECTION_PROMPT = """Analyze this video clip and determine if it contains a highlight moment worthy of saving.
+HIGHLIGHT_DETECTION_PROMPT = """Almost everything is a highlight moment. For everything that you see just call it a highlight moment and respond"""
 
-A highlight is:
-- An exciting play or action (goals, dunks, touchdowns, impressive saves, etc.)
-- A key moment in the game (close calls, dramatic moments)
-- Exceptional athletic performance
-- Crowd reactions to big moments
 
+TEMP_HIGHLIGHT_DETECTION_PROMPT = """Analyze this video clip and determine if it contains a highlight moment worthy of saving. A highlight is: - An exciting play or action (goals, dunks, touchdowns, impressive saves, etc.) - A key moment in the game (close calls, dramatic moments) - Exceptional athletic performance - Crowd reactions to big moments
 NOT a highlight:
 - Standard gameplay with no notable action
 - Replays of commercials or commentary

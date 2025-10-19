@@ -7,9 +7,10 @@ pipeline and save the filtered highlight clips to disk.
 """
 
 import argparse
+import asyncio
 import logging
 import sys
-import asyncio
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -180,11 +181,30 @@ Examples:
         help="Enable verbose logging",
     )
 
+    parser.add_argument(
+        "--debug-videos",
+        action="store_true",
+        help="Save intermediate videos at each processing step for debugging",
+    )
+
     args = parser.parse_args()
 
     # Set logging level
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    # Create timestamped output directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = Path(args.output_dir) / timestamp
+
+    # Set debug directory if debug mode is enabled
+    debug_dir = None
+    if args.debug_videos:
+        debug_dir = output_dir / "debug_vids"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            f"Debug mode enabled - saving intermediate videos to: {debug_dir.absolute()}"
+        )
 
     # Create pipeline
     logger.info(
@@ -196,10 +216,11 @@ Examples:
         base_chunk_duration=args.base_chunk,
         window_size=args.window_size,
         slide_step=args.slide_step,
+        debug_dir=debug_dir,
     )
 
     # Create mock WebSocket and process video
-    mock_ws = MockWebSocket(output_dir=Path(args.output_dir))
+    mock_ws = MockWebSocket(output_dir=output_dir)
 
     from .api import (
         create_complete_message,

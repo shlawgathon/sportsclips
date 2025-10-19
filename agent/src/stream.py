@@ -135,10 +135,10 @@ def stream_and_chunk_live(
         cache_dir = temp_path / "yt-dlp-cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build yt-dlp command to stream from live start
+        # Build yt-dlp command to stream from live edge (not from start)
         ytdlp_cmd = [
             "yt-dlp",
-            "--live-from-start",  # Start from beginning of live stream
+            "--no-live-from-start",  # Stream from live edge (current point), not from beginning
             "-o",
             "-",  # Output to stdout
             "--quiet",
