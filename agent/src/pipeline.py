@@ -9,6 +9,7 @@ import logging
 import subprocess
 import tempfile
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
@@ -181,7 +182,11 @@ class SlidingWindowPipeline:
         create_error_message: Callable[[str, str | None], str],
     ) -> None:
         """
-        Process a video URL with sliding window approach.
+        Process a video URL with real-time sliding window approach.
+
+        This method processes chunks as they arrive from the stream, caching them
+        and beginning the sliding window process immediately without downloading
+        the entire video upfront.
 
         Args:
             video_url: URL of video to process
@@ -194,15 +199,30 @@ class SlidingWindowPipeline:
         try:
             stream_type = "live stream" if is_live else "video"
             logger.info(
-                f"Starting sliding window pipeline for {stream_type}: {video_url}"
+                f"Starting real-time sliding window pipeline for {stream_type}: {video_url}"
             )
             logger.info(
                 f"Window size: {self.window_size} chunks ({self.window_size * self.base_chunk_duration}s), "
                 f"Slide step: {self.slide_step} chunks"
             )
 
-            # Collect all base chunks first
-            all_chunks: list[bytes] = []
+            # Use a deque to cache chunks with a maximum size to prevent unbounded memory growth
+            # We need to keep at least window_size chunks, but we'll keep more for overlap handling
+            max_cache_size = max(
+                self.window_size * 3, 20
+            )  # Keep at least 3 windows worth
+            chunk_cache: deque[bytes] = deque(maxlen=max_cache_size)
+
+            # Track absolute chunk position for metadata
+            total_chunks_received = 0
+            current_window_start = 0
+            highlight_count = 0
+
+            # Track whether we've already processed certain positions to handle overlap
+            # This prevents processing the same window multiple times
+            last_processed_position = -1
+
+            # Stream and process chunks in real-time
             for chunk_data in stream_and_chunk_video(
                 url=video_url,
                 chunk_duration=self.base_chunk_duration,
@@ -210,32 +230,63 @@ class SlidingWindowPipeline:
                 additional_options=["--no-part"],
                 is_live=is_live,
             ):
-                all_chunks.append(chunk_data)
-                logger.info(f"Collected base chunk {len(all_chunks)}")
+                # Add chunk to cache
+                chunk_cache.append(chunk_data)
+                total_chunks_received += 1
+                logger.info(
+                    f"Received chunk {total_chunks_received}, cache size: {len(chunk_cache)}"
+                )
 
-            logger.info(f"Total base chunks collected: {len(all_chunks)}")
+                # Check if we have enough chunks to form a complete window
+                if len(chunk_cache) < self.window_size:
+                    logger.debug(
+                        f"Waiting for more chunks ({len(chunk_cache)}/{self.window_size})"
+                    )
+                    continue
 
-            # Process with sliding window
-            window_start = 0
-            highlight_count = 0
+                # Calculate the window position in the cache
+                # We want to process windows starting from current_window_start
+                # but our cache is a sliding window itself
+                cache_offset = total_chunks_received - len(chunk_cache)
+                window_start_in_cache = current_window_start - cache_offset
 
-            while window_start + self.window_size <= len(all_chunks):
-                window_end = window_start + self.window_size
-                window_chunks = all_chunks[window_start:window_end]
+                # Check if the window we want to process is still in cache
+                if window_start_in_cache < 0:
+                    # The window start has fallen out of cache, move to the earliest available position
+                    window_start_in_cache = 0
+                    current_window_start = cache_offset
+
+                # Check if we have enough chunks in cache from this position
+                if window_start_in_cache + self.window_size > len(chunk_cache):
+                    logger.debug(
+                        f"Not enough chunks in cache for window at position {current_window_start}"
+                    )
+                    continue
+
+                # Skip if we've already processed this position
+                if current_window_start <= last_processed_position:
+                    continue
+
+                # Extract window from cache
+                window_chunks = list(chunk_cache)[
+                    window_start_in_cache : window_start_in_cache + self.window_size
+                ]
 
                 logger.info(
-                    f"Processing window: chunks {window_start}-{window_end - 1} "
-                    f"(time: {window_start * self.base_chunk_duration}s-"
-                    f"{window_end * self.base_chunk_duration}s)"
+                    f"Processing window: chunks {current_window_start}-{current_window_start + self.window_size - 1} "
+                    f"(time: {current_window_start * self.base_chunk_duration}s-"
+                    f"{(current_window_start + self.window_size) * self.base_chunk_duration}s)"
                 )
 
                 # Create metadata for this window
                 metadata: dict[str, Any] = {
                     "src_video_url": video_url,
-                    "window_start_chunk": window_start,
-                    "window_end_chunk": window_end - 1,
-                    "window_start_time": window_start * self.base_chunk_duration,
-                    "window_end_time": window_end * self.base_chunk_duration,
+                    "window_start_chunk": current_window_start,
+                    "window_end_chunk": current_window_start + self.window_size - 1,
+                    "window_start_time": current_window_start
+                    * self.base_chunk_duration,
+                    "window_end_time": (current_window_start + self.window_size)
+                    * self.base_chunk_duration,
                     "base_chunk_duration": self.base_chunk_duration,
                 }
 
@@ -294,19 +345,21 @@ class SlidingWindowPipeline:
                     logger.info(f"Sent highlight {highlight_count} to client")
 
                     # Slide by entire window to avoid duplicate highlights
-                    window_start += self.window_size
+                    last_processed_position = current_window_start
+                    current_window_start += self.window_size
                     logger.info(
                         f"Sliding by {self.window_size} chunks (highlight found)"
                     )
                 else:
                     # No highlight, slide by step size
-                    window_start += self.slide_step
+                    last_processed_position = current_window_start
+                    current_window_start += self.slide_step
                     logger.info(f"Sliding by {self.slide_step} chunks (no highlight)")
 
             # Send completion message
             ws.send(create_complete_message(video_url))
             logger.info(
-                f"Pipeline processing complete. Total highlights: {highlight_count}"
+                f"Pipeline processing complete. Total highlights: {highlight_count}, Total chunks: {total_chunks_received}"
             )
 
         except Exception as e:

@@ -477,6 +477,10 @@ class GeminiAgent:
                 if "top_k" in generation_config:
                     gen_config["top_k"] = generation_config["top_k"]
 
+            # Add tools to config if provided
+            if tools:
+                gen_config["tools"] = tools
+
             # Prepare generation arguments
             generate_kwargs: dict[str, Any] = {
                 "model": self.model_name,
@@ -485,9 +489,6 @@ class GeminiAgent:
 
             if gen_config:
                 generate_kwargs["config"] = types.GenerateContentConfig(**gen_config)
-
-            if tools:
-                generate_kwargs["tools"] = tools
 
             # Generate content using new SDK
             response = await self._client.aio.models.generate_content(**generate_kwargs)  # type: ignore[arg-type]
