@@ -4,7 +4,7 @@ Prompts and tool schemas for highlight trimming.
 
 from google.genai import types
 
-TRIM_HIGHLIGHT_PROMPT = """Analyze this video clip which contains a highlight moment. Your task is to identify the exact portion of the video that should be kept.
+TRIM_HIGHLIGHT_PROMPT_TEMPLATE = """Analyze this video clip which contains a highlight moment. Your task is to identify the exact portion of the video that should be kept.
 
 The video is divided into 7 segments of 2 seconds each (total 14 seconds):
 - Segment 1: 0-2s
@@ -15,9 +15,14 @@ The video is divided into 7 segments of 2 seconds each (total 14 seconds):
 - Segment 6: 10-12s
 - Segment 7: 12-14s
 
+{detection_context}
+
 Identify which consecutive segments contain the actual highlight action. Include a brief buildup and follow-through, but exclude unnecessary footage before or after.
 
 Use the report_trim_segments function to specify which segments to keep."""
+
+# Default prompt without detection context
+TRIM_HIGHLIGHT_PROMPT = TRIM_HIGHLIGHT_PROMPT_TEMPLATE.format(detection_context="")
 
 # Tool/function declaration for highlight trimming
 TRIM_HIGHLIGHT_TOOL = types.Tool(

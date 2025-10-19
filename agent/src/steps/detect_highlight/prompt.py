@@ -17,6 +17,7 @@ NOT a highlight:
 - Replays of commercials or commentary
 - Setup moments before action
 - Timeout or break periods
+- Half of a game highlight. If there is only half a highlight, then it is not worth selecting.
 
 Use the report_highlight_detection function to provide your assessment."""
 
