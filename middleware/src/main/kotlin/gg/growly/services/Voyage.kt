@@ -7,13 +7,11 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
-import io.ktor.server.application.*
-import io.ktor.server.config.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-class VoyageClient(application: Application) {
-    private val apiKey = Env.getRequired("VOYAGE_API_KEY")
+class VoyageClient {
+    private val apiKey = Env.get("VOYAGE_API_KEY")
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })

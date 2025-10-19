@@ -42,7 +42,7 @@ fun Application.configureDatabases()
         bucketName = "sportsclips-clip-store",
         region = "auto"
     )
-    val voyage = VoyageClient(this)
+    val voyage = VoyageClient()
     val youtube = gg.growly.services.YouTubeKtorService(
         Env.getRequired("YOUTUBE_API_KEY")
     )
@@ -118,7 +118,7 @@ fun Application.configureDatabases()
                                                                     thing.printStackTrace()
                                                                 }
                                                                 val text = listOfNotNull(clipTitle, description).joinToString("\n")
-                                                                val embedding = if (text.isNotBlank()) try { voyage.embed(text) } catch (_: Exception) { null } else null
+                                                                val embedding = if (text.isNotBlank()) try { voyage.embed(text) } catch (e: Exception) { e.printStackTrace(); null } else null
                                                                 clipService.create(
                                                                     Clip(
                                                                         s3Key = key,
