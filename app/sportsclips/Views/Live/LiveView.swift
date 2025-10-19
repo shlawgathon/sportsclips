@@ -12,18 +12,21 @@ struct LiveView: View {
     @StateObject private var playerManager = VideoPlayerManager.shared
     @StateObject private var localStorage = LocalStorageService.shared
     @State private var liveVideos: [VideoClip] = []
+    @State private var filteredVideos: [VideoClip] = []
     @State private var currentIndex = 0
     @State private var isLoading = false
+    @State private var selectedSport: VideoClip.Sport = .all
     
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            if liveVideos.isEmpty && isLoading {
+            
+            if filteredVideos.isEmpty && isLoading {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     .scaleEffect(1.5)
-            } else if liveVideos.isEmpty {
+            } else if filteredVideos.isEmpty {
                 // Empty state
                 VStack(spacing: 20) {
                     Image(systemName: "video.circle")
@@ -43,10 +46,15 @@ struct LiveView: View {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 0) {
-                            ForEach(Array(liveVideos.enumerated()), id: \.element.id) { index, video in
+                            ForEach(Array(filteredVideos.enumerated()), id: \.element.id) { index, video in
                                 LiveVideoCell(
                                     video: video,
-                                    playerManager: playerManager
+                                    playerManager: playerManager,
+                                    selectedSport: $selectedSport,
+                                    onSportChange: { newSport in
+                                        selectedSport = newSport
+                                        refreshFeedForSport(newSport)
+                                    }
                                 )
                                 .containerRelativeFrame([.horizontal, .vertical])
                                 .id(index)
@@ -55,7 +63,7 @@ struct LiveView: View {
                                         playerManager.playVideo(for: video.videoURL, videoId: video.id)
                                         localStorage.recordView(videoId: video.id)
                                         
-                                        if index >= liveVideos.count - 2 {
+                                        if index >= filteredVideos.count - 2 {
                                             loadMoreVideos()
                                         }
                                     }
@@ -92,15 +100,21 @@ struct LiveView: View {
         Task {
             do {
                 // TODO: Replace with actual live streams endpoint
-                let videos = try await apiService.fetchVideos()
+                let videos = try await apiService.fetchVideos(sport: selectedSport == .all ? nil : selectedSport)
                 await MainActor.run {
                     self.liveVideos = videos
+                    // Randomize order when "All" is selected
+                    if self.selectedSport == .all {
+                        self.filteredVideos = videos.shuffled()
+                    } else {
+                        self.filteredVideos = videos // Since we're already filtering at API level
+                    }
                     self.isLoading = false
                     
                     // Auto-play first video
-                    if !liveVideos.isEmpty {
-                        playerManager.playVideo(for: liveVideos[0].videoURL, videoId: liveVideos[0].id)
-                        localStorage.recordView(videoId: liveVideos[0].id)
+                    if !filteredVideos.isEmpty {
+                        playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
+                        localStorage.recordView(videoId: filteredVideos[0].id)
                     }
                 }
             } catch {
@@ -117,9 +131,15 @@ struct LiveView: View {
         isLoading = true
         Task {
             do {
-                let newVideos = try await apiService.fetchVideos(page: (liveVideos.count / 10) + 1)
+                let newVideos = try await apiService.fetchVideos(page: (liveVideos.count / 10) + 1, sport: selectedSport == .all ? nil : selectedSport)
                 await MainActor.run {
                     self.liveVideos.append(contentsOf: newVideos)
+                    // Randomize order when "All" is selected
+                    if self.selectedSport == .all {
+                        self.filteredVideos.append(contentsOf: newVideos.shuffled())
+                    } else {
+                        self.filteredVideos.append(contentsOf: newVideos) // Since we're already filtering at API level
+                    }
                     self.isLoading = false
                 }
             } catch {
@@ -129,6 +149,17 @@ struct LiveView: View {
             }
         }
     }
+    
+    private func refreshFeedForSport(_ sport: VideoClip.Sport) {
+        // Reset the video lists
+        liveVideos = []
+        filteredVideos = []
+        currentIndex = 0
+        
+        // Load fresh videos for the selected sport
+        loadLiveVideos()
+    }
+    
 }
 
 #Preview {

@@ -15,21 +15,32 @@ class APIService {
     
     private init() {}
     
-    func fetchVideos(page: Int = 1, limit: Int = 10) async throws -> [VideoClip] {
+    func fetchVideos(page: Int = 1, limit: Int = 10, sport: VideoClip.Sport? = nil) async throws -> [VideoClip] {
         do {
             // For now, we'll use mock data since we don't have a clips list endpoint
             // In a real implementation, you'd call something like:
-            // let clips = try await apiClient.listClips()
+            // let clips = try await apiClient.listClips(sport: sport?.rawValue)
             // return clips.map { convertClipToVideoClip($0) }
             
             // Simulate network delay
             try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
             
-            return VideoClip.mockArray
+            let allVideos = VideoClip.mockArray
+            
+            // Filter by sport if specified
+            if let sport = sport, sport != .all {
+                return allVideos.filter { $0.sport == sport }
+            }
+            
+            return allVideos
         } catch {
             print("Failed to fetch videos: \(error)")
             // Return mock data as fallback
-            return VideoClip.mockArray
+            let allVideos = VideoClip.mockArray
+            if let sport = sport, sport != .all {
+                return allVideos.filter { $0.sport == sport }
+            }
+            return allVideos
         }
     }
     

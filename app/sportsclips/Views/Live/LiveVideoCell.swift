@@ -11,12 +11,18 @@ import SwiftUI
 struct LiveVideoCell: View {
     let video: VideoClip
     @ObservedObject var playerManager: VideoPlayerManager
+    @Binding var selectedSport: VideoClip.Sport
+    let onSportChange: (VideoClip.Sport) -> Void
     
     @State private var isLiked = false
     @State private var commentText = ""
     @State private var heartAnimation: HeartAnimation?
+    @State private var viewCount: Int = 0
     @StateObject private var localStorage = LocalStorageService.shared
     @FocusState private var isCommentFieldFocused: Bool
+    @State private var showSportDropdown = false
+    @State private var isSummaryExpanded = false
+    @State private var showComments = true
     
     var body: some View {
         GeometryReader { geometry in
@@ -54,10 +60,14 @@ struct LiveVideoCell: View {
                                 .fill(.red)
                                 .frame(width: 8, height: 8)
                             
-                            Image(systemName: video.sport.icon)
-                                .font(.system(size: 13, weight: .medium))
-                            Text(video.sport.rawValue)
-                                .font(.system(size: 12, weight: .semibold))
+                            // Show icon if it exists in SF Symbols, otherwise show sport name
+                            if UIImage(systemName: video.sport.icon) != nil {
+                                Image(systemName: video.sport.icon)
+                                    .font(.system(size: 13, weight: .medium))
+                            } else {
+                                Text(video.sport.rawValue)
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
                             
                             Text("LIVE")
                                 .font(.system(size: 11, weight: .bold))
@@ -92,7 +102,67 @@ struct LiveVideoCell: View {
                             }
                         )
                         
+                        // Sport filter button - same height as live tag
+                        Button(action: {
+                            showSportDropdown.toggle()
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "line.3.horizontal.decrease")
+                                    .font(.system(size: 13, weight: .medium))
+                                
+                                Text(selectedSport == .all ? "All" : selectedSport.rawValue)
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            ZStack {
+                                // Liquid glass background
+                                Capsule()
+                                    .fill(.ultraThinMaterial)
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(
+                                                LinearGradient(
+                                                    colors: [
+                                                        .white.opacity(0.3),
+                                                        .white.opacity(0.1)
+                                                    ],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                ),
+                                                lineWidth: 1.5
+                                            )
+                                    )
+                                    .shadow(color: .white.opacity(0.2), radius: 8, x: 0, y: 2)
+                                
+                                // White tint overlay
+                                Capsule()
+                                    .fill(.white.opacity(0.1))
+                            }
+                        )
+                        
                         Spacer()
+                        
+                        // View count
+                        HStack(spacing: 4) {
+                            Image(systemName: "eye.fill")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white.opacity(0.8))
+                            
+                            Text("\(viewCount)")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(.white.opacity(0.2), lineWidth: 1)
+                        )
                         
                         // Like counter
                         HStack(spacing: 4) {
@@ -100,7 +170,7 @@ struct LiveVideoCell: View {
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundColor(isLiked ? .red : .white)
                             
-                            Text("\(video.likes + (isLiked ? 1 : 0))")
+                            Text(formatCount(video.likes + (isLiked ? 1 : 0)))
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.white)
                         }
@@ -115,20 +185,6 @@ struct LiveVideoCell: View {
                             toggleLike()
                         }
                         
-                        // Share button
-                        Button(action: {
-                            shareVideo()
-                        }) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(.white)
-                                .padding(8)
-                                .background(.ultraThinMaterial, in: Circle())
-                                .overlay(
-                                    Circle()
-                                        .stroke(.white.opacity(0.2), lineWidth: 1)
-                                )
-                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 50)
@@ -144,27 +200,89 @@ struct LiveVideoCell: View {
                         .allowsHitTesting(false)
                 }
                 
-                // Overlay content - all aligned to bottom and within screen bounds
+                // Overlay content - comments, summary, and comment input
                 VStack(spacing: 0) {
                     Spacer()
                     
                     // Left side - Caption and live comments (full width)
                     VStack(alignment: .leading, spacing: 8) {
-                        // Live comments section (limited height)
-                        LiveCommentsView()
-                            .frame(maxHeight: 180)
+                        // Live comments section (limited height) - hide when summary is expanded
+                        if showComments && !isSummaryExpanded {
+                            LiveCommentsView(liveId: video.id)
+                                .frame(maxHeight: 180)
+                        }
                         
-                        // Caption text
-                        Text(video.caption)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.white)
-                            .lineLimit(2)
+                        // Live summary with expand/collapse functionality
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "livephoto")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.red)
+                                
+                                Text("Live Summary")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.9))
+                                
+                                Text("-")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.6))
+                                
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        isSummaryExpanded.toggle()
+                                    }
+                                }) {
+                                    Text(isSummaryExpanded ? "see less" : "see more...")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.8))
+                                        .underline()
+                                }
+                                
+                                Spacer()
+                                
+                                // Hide comments button
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        showComments.toggle()
+                                    }
+                                }) {
+                                    Image(systemName: showComments ? "eye.slash" : "eye")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.6))
+                                }
+                            }
+                            
+                            // Expanded summary content
+                            if isSummaryExpanded {
+                                let liveSummary = generateLiveSummary(for: video)
+                                Text(liveSummary)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .multilineTextAlignment(.leading)
+                                    .padding(.top, 4)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     
-                    // Comment input - always visible at bottom (full width)
+                    // Comment input with share button - positioned right below caption
                     HStack(spacing: 10) {
+                        // Share button (left side)
+                        Button(action: {
+                            shareVideo()
+                        }) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(10)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .overlay(
+                                    Circle()
+                                        .stroke(.white.opacity(0.2), lineWidth: 1)
+                                )
+                        }
+                        
                         // Comment input field (expandable)
                         TextField("Add a comment...", text: $commentText)
                             .focused($isCommentFieldFocused)
@@ -187,19 +305,94 @@ struct LiveVideoCell: View {
                             sendComment()
                         }) {
                             Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 34, weight: .medium))
+                                .font(.system(size: 20, weight: .medium))
                                 .foregroundColor(commentText.isEmpty ? .gray.opacity(0.5) : .blue)
+                                .padding(10)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .overlay(
+                                    Circle()
+                                        .stroke(.white.opacity(0.2), lineWidth: 1)
+                                )
                         }
                         .disabled(commentText.isEmpty)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, geometry.safeAreaInsets.bottom > 0 ? 20 : 100)
+                    .padding(.top, 12)
+                    .padding(.bottom, 88) // Same gap as highlights page
+                    .background(
+                        // Add a subtle background to ensure visibility
+                        Rectangle()
+                            .fill(.black.opacity(0.3))
+                    )
                 }
-                .zIndex(4) // Ensure comment section is above double-tap overlay
+                .zIndex(20) // Ensure comment section is above menu bar and dropdown
+                
+                // Sport filter dropdown - positioned as overlay
+                if showSportDropdown {
+                    VStack {
+                        HStack {
+                            VStack(spacing: 0) {
+                                ForEach(VideoClip.Sport.allCases, id: \.self) { sport in
+                                    Button(action: {
+                                        showSportDropdown = false
+                                        onSportChange(sport)
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            if sport == .all {
+                                                Image(systemName: "flame")
+                                                    .font(.system(size: 14, weight: .medium))
+                                            } else if UIImage(systemName: sport.icon) != nil {
+                                                Image(systemName: sport.icon)
+                                                    .font(.system(size: 14, weight: .medium))
+                                            } else {
+                                                Text(sport.rawValue)
+                                                    .font(.system(size: 12, weight: .medium))
+                                            }
+                                            
+                                            Text(sport == .all ? "All" : sport.rawValue)
+                                                .font(.system(size: 12, weight: .medium))
+                                            
+                                            Spacer()
+                                            
+                                            if selectedSport == sport {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 12, weight: .medium))
+                                            }
+                                        }
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 12)
+                                        .background(
+                                            Rectangle()
+                                                .fill(selectedSport == sport ? .white.opacity(0.1) : .clear)
+                                        )
+                                    }
+                                }
+                            }
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(.ultraThinMaterial)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(.white.opacity(0.2), lineWidth: 1)
+                                    )
+                            )
+                            .padding(.leading, 16)
+                            .padding(.top, 100) // Position below the top bar
+                            
+                            Spacer()
+                        }
+                        
+                        Spacer()
+                    }
+                    .zIndex(20) // Above everything else
+                }
             }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        .onAppear {
+            startViewCountUpdates()
+        }
     }
     
     private func toggleLike() {
@@ -223,6 +416,8 @@ struct LiveVideoCell: View {
     private func sendComment() {
         guard !commentText.isEmpty else { return }
         
+        let commentToSend = commentText
+        
         // Record comment interaction
         localStorage.recordInteraction(
             videoId: video.id,
@@ -231,8 +426,10 @@ struct LiveVideoCell: View {
             shared: false
         )
         
-        // TODO: Send comment to API
-        print("Sending comment: \(commentText)")
+        // Send comment to API via service
+        Task {
+            await LiveCommentService.shared.postComment(commentToSend)
+        }
         
         // Clear input and dismiss keyboard
         commentText = ""
@@ -307,11 +504,88 @@ struct LiveVideoCell: View {
             heartAnimation = nil
         }
     }
+    
+    private func startViewCountUpdates() {
+        // Start with a random base view count
+        viewCount = Int.random(in: 150...500)
+        
+        // Update view count every 3-8 seconds with random increments
+        Timer.scheduledTimer(withTimeInterval: Double.random(in: 3...8), repeats: true) { _ in
+            withAnimation(.easeInOut(duration: 0.5)) {
+                // Random increment between 1-15 viewers
+                let increment = Int.random(in: 1...15)
+                viewCount += increment
+                
+                // Occasionally decrease by 1-5 viewers (people leaving)
+                if Int.random(in: 1...10) <= 2 {
+                    let decrease = Int.random(in: 1...5)
+                    viewCount = max(50, viewCount - decrease)
+                }
+            }
+        }
+    }
+    
+    private func formatCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            let millions = Double(count) / 1_000_000.0
+            if millions == floor(millions) {
+                return "\(Int(millions))M"
+            } else {
+                return String(format: "%.1fM", millions)
+            }
+        } else if count >= 1_000 {
+            let thousands = Double(count) / 1_000.0
+            if thousands == floor(thousands) {
+                return "\(Int(thousands))K"
+            } else {
+                return String(format: "%.1fK", thousands)
+            }
+        } else {
+            return "\(count)"
+        }
+    }
+    
+    private func generateLiveSummary(for video: VideoClip) -> String {
+        let sport = video.sport.rawValue
+        let baseSummary = "Live \(sport) action happening right now! Join thousands of fans watching this exciting match. "
+        
+        // Add sport-specific details
+        let sportDetails: String
+        switch video.sport {
+        case .basketball:
+            sportDetails = "Watch as players make incredible shots, amazing dunks, and clutch plays in real-time. The energy is electric!"
+        case .football:
+            sportDetails = "Experience the intensity of every play, touchdown celebrations, and game-changing moments as they happen."
+        case .soccer:
+            sportDetails = "Follow the beautiful game with live goals, spectacular saves, and dramatic moments unfolding before your eyes."
+        case .baseball:
+            sportDetails = "Catch every pitch, home run, and incredible defensive play as the game unfolds in real-time."
+        case .tennis:
+            sportDetails = "Watch intense rallies, powerful serves, and match-defining points as the action heats up on court."
+        case .hockey:
+            sportDetails = "Feel the speed and intensity of every shift, goal, and bone-crushing hit as the game progresses."
+        case .boxing:
+            sportDetails = "Witness every punch, combination, and knockout moment as fighters battle it out in the ring."
+        case .mma:
+            sportDetails = "Experience the raw power and technique of mixed martial arts with every takedown, submission, and finish."
+        case .racing:
+            sportDetails = "Feel the speed and adrenaline as drivers push their limits on every turn and straightaway."
+        case .golf:
+            sportDetails = "Follow every swing, putt, and birdie as players navigate the course in this live tournament."
+        case .all:
+            sportDetails = "Don't miss any of the action as athletes compete at the highest level in this live sporting event."
+        }
+        
+        return baseSummary + sportDetails
+    }
+    
 }
 
 #Preview {
     LiveVideoCell(
         video: VideoClip.mock,
-        playerManager: VideoPlayerManager.shared
+        playerManager: VideoPlayerManager.shared,
+        selectedSport: .constant(.all),
+        onSportChange: { _ in }
     )
 }

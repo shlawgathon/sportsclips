@@ -9,7 +9,8 @@
 import SwiftUI
 
 struct LiveCommentsView: View {
-    @State private var comments: [LiveComment] = []
+    let liveId: String
+    @StateObject private var commentService = LiveCommentService.shared
     @State private var visibleComments: [LiveComment] = []
     
     var body: some View {
@@ -21,35 +22,20 @@ struct LiveCommentsView: View {
         }
         .frame(maxWidth: 200, alignment: .leading)
         .onAppear {
-            loadComments()
-            startCommentStream()
+            commentService.startCommentStream(for: liveId)
+        }
+        .onDisappear {
+            commentService.stopCommentStream()
+        }
+        .onReceive(commentService.$comments) { comments in
+            updateVisibleComments(from: comments)
         }
     }
     
-    private func loadComments() {
-        comments = LiveComment.mockComments
-        visibleComments = Array(comments.prefix(3))
-    }
-    
-    private func startCommentStream() {
-        var index = 3
-        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-            guard index < comments.count else { return }
-            
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                visibleComments.append(comments[index])
-                // Keep only last 3 comments visible
-                if visibleComments.count > 3 {
-                    visibleComments.removeFirst()
-                }
-            }
-            
-            index += 1
-            
-            // Loop back when we run out
-            if index >= comments.count {
-                index = 0
-            }
+    private func updateVisibleComments(from comments: [LiveComment]) {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+            // Show the most recent 3 comments, with newest at bottom
+            visibleComments = Array(comments.suffix(3))
         }
     }
 }
@@ -59,9 +45,17 @@ struct CommentBubble: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(comment.username)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.white.opacity(0.9))
+            HStack(spacing: 4) {
+                Text(comment.username)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(comment.isOwnComment ? .blue : .white.opacity(0.9))
+                
+                if comment.isOwnComment {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(.blue)
+                }
+            }
             
             Text(comment.message)
                 .font(.system(size: 12, weight: .medium))
@@ -72,10 +66,11 @@ struct CommentBubble: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(.ultraThinMaterial)
+                .fill(comment.isOwnComment ? Color.blue.opacity(0.2) : Color.clear)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(.white.opacity(0.2), lineWidth: 1)
+                        .stroke(comment.isOwnComment ? .blue.opacity(0.5) : .white.opacity(0.2), lineWidth: 1)
                 )
         )
         .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 2)
@@ -89,7 +84,7 @@ struct CommentBubble: View {
         VStack {
             Spacer()
             HStack {
-                LiveCommentsView()
+                LiveCommentsView(liveId: "preview-live-id")
                 Spacer()
             }
             .padding(.bottom, 150)
