@@ -220,52 +220,14 @@ struct LiveView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16)
 
-                            HStack(spacing: 10) {
-                                Button(action: {}) {
-                                    Image(systemName: "square.and.arrow.up")
-                                        .font(.system(size: 20, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.4))
-                                        .padding(10)
-                                        .background(.ultraThinMaterial.opacity(0.5), in: Circle())
-                                        .overlay(
-                                            Circle()
-                                                .stroke(.white.opacity(0.1), lineWidth: 1)
-                                        )
-                                }
-                                .disabled(true)
-
-                                TextField("Comments disabled", text: .constant(""))
-                                    .font(.system(size: 14))
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
-                                    .background(.ultraThinMaterial.opacity(0.5), in: RoundedRectangle(cornerRadius: 24))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 24)
-                                            .stroke(.white.opacity(0.2), lineWidth: 1.5)
-                                    )
-                                    .foregroundColor(.white.opacity(0.5))
-                                    .disabled(true)
-
-                                Button(action: {}) {
-                                    Image(systemName: "arrow.up.circle.fill")
-                                        .font(.system(size: 20, weight: .medium))
-                                        .foregroundColor(.gray.opacity(0.5))
-                                        .padding(10)
-                                        .background(.ultraThinMaterial.opacity(0.5), in: Circle())
-                                        .overlay(
-                                            Circle()
-                                                .stroke(.white.opacity(0.1), lineWidth: 1)
-                                        )
-                                }
-                                .disabled(true)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
-                            .padding(.bottom, 104) // Exactly 10px gap to menu bar
-                            .background(
-                                Rectangle()
-                                    .fill(.black.opacity(0.3))
-                            )
+                            // Comments input removed in empty state placeholder per requirement
+                            Spacer(minLength: 0)
+                                .frame(height: 104)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    Rectangle()
+                                        .fill(.black.opacity(0.3))
+                                )
                         }
                         .zIndex(20)
                     }
@@ -290,7 +252,10 @@ struct LiveView: View {
                                 .id(index)
                                     .onAppear {
                                         currentIndex = index
-                                        playerManager.playVideo(for: video.videoURL, videoId: video.id)
+                                        // Do not attempt URL-based playback for live items; LiveVideoPlayerView handles WebSocket streaming
+                                        if (video.gameId == nil) || (video.gameId?.isEmpty == true) {
+                                            playerManager.playVideo(for: video.videoURL, videoId: video.id)
+                                        }
                                         localStorage.recordView(videoId: video.id)
 
                                         if index >= filteredVideos.count - 2 {
@@ -415,10 +380,12 @@ struct LiveView: View {
                     }
                     self.isLoading = false
 
-                    // Auto-play first video
-                    if !filteredVideos.isEmpty {
-                        playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
-                        localStorage.recordView(videoId: filteredVideos[0].id)
+                    // Auto-play first video (non-live only; live playback handled in LiveVideoPlayerView)
+                    if let first = filteredVideos.first {
+                        if (first.gameId == nil) || (first.gameId?.isEmpty == true) {
+                            playerManager.playVideo(for: first.videoURL, videoId: first.id)
+                        }
+                        localStorage.recordView(videoId: first.id)
                     }
                 }
             } catch {

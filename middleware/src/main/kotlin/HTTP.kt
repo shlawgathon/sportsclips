@@ -5,6 +5,7 @@ import com.ucasoft.ktor.simpleMemoryCache.memoryCache
 import io.ktor.server.application.*
 import io.ktor.server.routing.*
 import kotlin.time.Duration.Companion.seconds
+import gg.growly.liveVideoRoutes
 
 fun Application.configureHTTP()
 {

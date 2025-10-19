@@ -6,12 +6,14 @@
 //
 
 import Foundation
+import os
 
 @MainActor
 class APIService {
     static let shared = APIService()
 
     private let apiClient = APIClient.shared
+    private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "sportsclips", category: "APIService")
 
     private init() {}
 
@@ -111,25 +113,36 @@ class APIService {
 
     // Live videos collection -> map to VideoClip with gameId for live playback
     func fetchLiveVideos() async throws -> [VideoClip] {
-        let items = try await apiClient.listLiveVideos()
-        return items.map { item in
-            let live = item.live
-            // Derive sport from title/description heuristics
-            let sport = VideoClip.Sport(rawValue: "All") ?? .all
-            return VideoClip(
-                id: item.id,
-                videoURL: "", // live playback via websocket, not direct URL
-                caption: live.description,
-                sport: sport,
-                likes: 0,
-                comments: 0,
-                shares: 0,
-                createdAt: Date(timeIntervalSince1970: TimeInterval(live.createdAt / 1000)),
-                s3Key: nil,
-                title: live.title,
-                description: live.description,
-                gameId: item.id // YouTube videoId used by LiveVideoPlayerView
-            )
+        let t0 = Date()
+        log.log("[LiveAPI] fetchLiveVideos start")
+        do {
+            let items = try await apiClient.listLiveVideos()
+            let mapped = items.map { item in
+                let live = item.live
+                // Derive sport from title/description heuristics
+                let sport = VideoClip.Sport(rawValue: "All") ?? .all
+                return VideoClip(
+                    id: item.id,
+                    videoURL: "", // live playback via websocket, not direct URL
+                    caption: live.description,
+                    sport: sport,
+                    likes: 0,
+                    comments: 0,
+                    shares: 0,
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(live.createdAt / 1000)),
+                    s3Key: nil,
+                    title: live.title,
+                    description: live.description,
+                    gameId: item.id // YouTube videoId used by LiveVideoPlayerView
+                )
+            }
+            let dt = Int(Date().timeIntervalSince(t0) * 1000)
+            log.log("[LiveAPI] fetchLiveVideos success count=\(mapped.count) durationMs=\(dt)")
+            return mapped
+        } catch {
+            let dt = Int(Date().timeIntervalSince(t0) * 1000)
+            log.error("[LiveAPI] fetchLiveVideos error=\(error.localizedDescription) durationMs=\(dt)")
+            throw error
         }
     }
 

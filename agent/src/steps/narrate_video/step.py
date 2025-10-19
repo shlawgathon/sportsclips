@@ -30,7 +30,10 @@ class VideoNarrator:
         self.prompt = NARRATE_VIDEO_PROMPT
 
     async def generate_narration(
-        self, video_data: bytes, metadata: dict[str, Any]
+        self,
+        video_data: bytes,
+        metadata: dict[str, Any],
+        previous_narrations: list[str] | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """
         Generate narration text for a video clip.
@@ -38,6 +41,7 @@ class VideoNarrator:
         Args:
             video_data: Video clip bytes
             metadata: Video metadata
+            previous_narrations: List of previous narration texts to avoid repetition
 
         Returns:
             Tuple of (narration_text, updated_metadata)
@@ -59,10 +63,23 @@ class VideoNarrator:
                             f"Narration generation attempt {attempt + 1}/{max_retries}"
                         )
 
+                        # Build prompt by replacing the {previous_narrations} placeholder
+                        if previous_narrations:
+                            previous_narrations_text = f"""IMPORTANT: Avoid repetition! Here are the previous {len(previous_narrations)} narrations that were just generated:
+{chr(10).join(f'- "{narr}"' for narr in previous_narrations)}
+
+Focus on NEW aspects, different details, or different perspectives that haven't been covered yet."""
+                        else:
+                            previous_narrations_text = ""
+
+                        prompt = self.prompt.replace(
+                            "{previous_narrations}", previous_narrations_text
+                        )
+
                         # Generate narration with Gemini using function calling
                         response = await self.agent.generate_from_video(
                             video_input=temp_path,
-                            prompt=self.prompt,
+                            prompt=prompt,
                             tools=[NARRATE_VIDEO_TOOL],
                         )
 
@@ -156,7 +173,9 @@ def _get_narrator() -> VideoNarrator:
 
 
 async def narrate_video_step(
-    video_data: bytes, metadata: dict[str, Any]
+    video_data: bytes,
+    metadata: dict[str, Any],
+    previous_narrations: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Pipeline step that generates narration text for a video clip.
@@ -167,14 +186,17 @@ async def narrate_video_step(
     Args:
         video_data: Video clip bytes
         metadata: Video metadata
+        previous_narrations: List of previous narration texts to avoid repetition
 
     Returns:
         Tuple of (narration_text, updated_metadata)
     """
     logger.info("Running narrate_video_step with Gemini LLM")
+    if previous_narrations:
+        logger.info(f"Using {len(previous_narrations)} previous narrations for context")
 
     narrator = _get_narrator()
     result: tuple[str, dict[str, Any]] = await narrator.generate_narration(
-        video_data, metadata
+        video_data, metadata, previous_narrations
     )
     return result

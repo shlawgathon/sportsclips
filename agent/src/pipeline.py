@@ -711,13 +711,18 @@ class SlidingWindowPipeline:
         async def process_combined_chunk(
             combined_chunk: bytes,
             chunk_number: int,
-        ) -> None:
+            previous_narrations_list: list[str],
+        ) -> str | None:
             """
             Process a single 8-second combined chunk through the full pipeline.
 
             Args:
                 combined_chunk: 8-second video chunk
                 chunk_number: Sequential chunk number for tracking
+                previous_narrations_list: List of previous narration texts to avoid repetition
+
+            Returns:
+                Generated narration text, or None if no narration was generated
             """
             try:
                 logger.info(
@@ -733,8 +738,13 @@ class SlidingWindowPipeline:
 
                 # Step 1: Generate text narration from video
                 logger.info("[Live Commentary] Step 1: Generating text narration...")
+                logger.info(
+                    f"[Live Commentary] Previous narrations: {previous_narrations_list}"
+                )
                 narration_text, metadata = await narrate_video_step(
-                    combined_chunk, metadata
+                    combined_chunk,
+                    metadata,
+                    previous_narrations=previous_narrations_list,
                 )
                 logger.info(f"[Live Commentary] Narration text: '{narration_text}'")
 
@@ -742,7 +752,7 @@ class SlidingWindowPipeline:
                     logger.warning(
                         f"[Live Commentary] No narration generated for chunk {chunk_number}, skipping"
                     )
-                    return
+                    return None
 
                 # Step 2: Convert text to speech using Live API
                 logger.info("[Live Commentary] Step 2: Converting text to speech...")
@@ -757,7 +767,7 @@ class SlidingWindowPipeline:
                     logger.warning(
                         f"[Live Commentary] No audio generated for chunk {chunk_number}"
                     )
-                    return
+                    return None
 
                 # Step 3: Stitch audio with the 8-second video
                 stitched_video = await asyncio.to_thread(
@@ -812,15 +822,20 @@ class SlidingWindowPipeline:
                     f"[Live Commentary] ✓ Successfully sent chunk {chunk_number} with narration"
                 )
 
+                # Return the narration text so it can be added to previous_narrations
+                return narration_text
+
             except Exception as e:
                 logger.error(
                     f"[Live Commentary] Error processing chunk {chunk_number}: {e}",
                     exc_info=True,
                 )
+                return None
 
         # Main processing loop
         chunk_number = 0
         chunk_buffer: list[bytes] = []
+        previous_narrations: deque[str] = deque(maxlen=3)  # Track last 3 narrations
 
         try:
             logger.info(
@@ -840,7 +855,11 @@ class SlidingWindowPipeline:
                         )
                         chunk_number += 1
                         # Process single chunk as-is (won't be 8 seconds but better than dropping it)
-                        await process_combined_chunk(chunk_buffer[0], chunk_number)
+                        narration = await process_combined_chunk(
+                            chunk_buffer[0], chunk_number, list(previous_narrations)
+                        )
+                        if narration:
+                            previous_narrations.append(narration)
 
                     logger.info("[Live Commentary] Received completion signal")
                     break
@@ -869,7 +888,11 @@ class SlidingWindowPipeline:
                 )
 
                 # Process the combined 8-second chunk through the full pipeline
-                await process_combined_chunk(combined_chunk, chunk_number)
+                narration = await process_combined_chunk(
+                    combined_chunk, chunk_number, list(previous_narrations)
+                )
+                if narration:
+                    previous_narrations.append(narration)
 
             logger.info(
                 f"[Live Commentary] Pipeline complete! Processed {chunk_number} total chunks"

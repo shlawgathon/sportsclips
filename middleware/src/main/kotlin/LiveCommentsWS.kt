@@ -11,27 +11,36 @@ object LiveCommentsWSHub {
     fun register(clipId: String, session: DefaultWebSocketServerSession) {
         val set = sessions.computeIfAbsent(clipId) { ConcurrentHashMap.newKeySet() }
         set.add(session)
+        try { session.call.application.log.info("[LiveCommentsWS] register clipId=$clipId size=${set.size}") } catch (_: Throwable) {}
     }
 
     fun unregister(session: DefaultWebSocketServerSession) {
-        sessions.values.forEach { it.remove(session) }
+        sessions.entries.forEach { (clipId, set) ->
+            if (set.remove(session)) {
+                try { session.call.application.log.info("[LiveCommentsWS] unregister clipId=$clipId size=${set.size}") } catch (_: Throwable) {}
+            }
+        }
     }
 
     suspend fun broadcastComment(comment: LiveComment) {
         val set = sessions[comment.clipId] ?: return
         val json = """{"type":"comment","data":${commentJson(comment)}}"""
+        var sent = 0
         for (sess in set) {
-            try { sess.send(Frame.Text(json)) } catch (_: Throwable) {}
+            try { sess.send(Frame.Text(json)); sent++ } catch (_: Throwable) {}
         }
+        try { set.firstOrNull()?.call?.application?.log?.debug("[LiveCommentsWS] broadcastComment clipId=${comment.clipId} sent=$sent") } catch (_: Throwable) {}
     }
 
     suspend fun broadcastViewerCount(clipId: String) {
         val set = sessions[clipId] ?: return
         val count = LiveHub.viewerCount(clipId)
         val json = """{"type":"viewer_count","data":{"clipId":"$clipId","viewers":$count}}"""
+        var sent = 0
         for (sess in set) {
-            try { sess.send(Frame.Text(json)) } catch (_: Throwable) {}
+            try { sess.send(Frame.Text(json)); sent++ } catch (_: Throwable) {}
         }
+        try { set.firstOrNull()?.call?.application?.log?.debug("[LiveCommentsWS] broadcastViewerCount clipId=$clipId viewers=$count sent=$sent") } catch (_: Throwable) {}
     }
 }
 
@@ -43,9 +52,11 @@ fun Route.liveCommentsSocketRoutes() {
         if (clipId.isNullOrBlank()) {
             send(Frame.Text("{" +
                 "\"type\":\"error\",\"message\":\"Missing clipId\"}"))
+            log.warn("[LiveCommentsWS] reject connection: missing clipId")
             close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "missing clipId"))
             return@webSocket
         }
+        log.info("[LiveCommentsWS] client connected clipId=$clipId")
         LiveCommentsWSHub.register(clipId, this)
         try {
             // send init payload: latest comments + viewer count
@@ -53,6 +64,7 @@ fun Route.liveCommentsSocketRoutes() {
             val commentsJson = comments.joinToString(prefix = "[", postfix = "]") { commentJson(it) }
             val viewers = LiveHub.viewerCount(clipId)
             val initJson = """{"type":"init","data":{"comments":$commentsJson,"viewer_count":$viewers}}"""
+            log.debug("[LiveCommentsWS] init payload clipId=$clipId comments=${comments.size} viewers=$viewers")
             send(Frame.Text(initJson))
 
             // listen for messages from client
@@ -73,21 +85,25 @@ fun Route.liveCommentsSocketRoutes() {
                             message = message,
                             timestampEpochSec = nowSec
                         )
+                        log.info("[LiveCommentsWS] post_comment clipId=$clipId userId=$userId username=${username.take(16)} msgLen=${message.length}")
                         LiveHub.addComment(clipId, comment)
                         LiveCommentsWSHub.broadcastComment(comment)
                     } else if (frame is Frame.Close) {
                         break
+                    } else {
+                        log.debug("[LiveCommentsWS] unknown text msg clipId=$clipId len=${txt.length}")
                     }
                 } else if (frame is Frame.Close) {
                     break
                 }
             }
         } catch (e: ClosedReceiveChannelException) {
-            // client closed
+            log.debug("[LiveCommentsWS] client closed clipId=$clipId")
         } catch (t: Throwable) {
             log.debug("[LiveCommentsWS] error: ${t.message}")
         } finally {
             LiveCommentsWSHub.unregister(this)
+            log.info("[LiveCommentsWS] client disconnected clipId=$clipId")
             try { close() } catch (_: Exception) {}
         }
     }

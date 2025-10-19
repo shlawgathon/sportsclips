@@ -6,6 +6,12 @@ import kotlinx.serialization.Serializable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import gg.growly.connectToMongoDB
+import gg.growly.LiveVideoService
+import gg.growly.LiveChunkService
+import gg.growly.LiveChunk
+import gg.growly.services.S3Utility
+import gg.growly.services.S3Helper
 
 /**
  * Lightweight in-memory live system for comments and viewers per clip.
@@ -116,35 +122,69 @@ data class LiveListItemDTO(
     val live: LiveVideoDTO
 )
 
+@Serializable
+data class LiveChunkDTO(
+    val chunkNumber: Int,
+    val s3Key: String,
+    val url: String
+)
+
+@Serializable
+data class LiveChunksResponse(
+    val chunks: List<LiveChunkDTO>
+)
+
 fun Route.liveRoutes() {
     // Live videos collection
     get("/live-videos") {
-        val apiKey = gg.growly.services.Env.get("YOUTUBE_API_KEY")
-        val yt = gg.growly.services.YouTubeKtorService(apiKey ?: "")
+        val log = call.application.log
+        val started = System.currentTimeMillis()
+        log.info("[LiveAPI] GET /live-videos start")
+
+        // Read from the live_videos collection populated by the background runner
         try {
-            val resp = yt.searchLiveSports("sports live", 20)
-            val items = resp.items.map { item ->
-                val vid = item.id.videoId
-                val title = item.snippet.title
-                val desc = item.snippet.description
-                val url = "https://www.youtube.com/watch?v=$vid"
+            val app = call.application
+            val liveService = LiveVideoService(app.connectToMongoDB())
+            val lives = liveService.listAll().map { (id, live) ->
                 LiveListItemDTO(
-                    id = vid,
+                    id = id,
                     live = LiveVideoDTO(
-                        title = title,
-                        description = desc,
-                        streamUrl = url,
-                        isLive = true,
-                        liveChatId = null,
-                        createdAt = System.currentTimeMillis()
+                        title = live.title,
+                        description = live.description,
+                        streamUrl = live.streamUrl,
+                        isLive = live.isLive,
+                        liveChatId = live.liveChatId,
+                        createdAt = (live.updatedAt ?: System.currentTimeMillis() / 1000) * 1000 // ms for client
                     )
                 )
             }
+
+            val items = if (lives.isNotEmpty()) lives else run {
+                // Provide a minimal default only if DB is empty
+                val defaultId = "8Gx4dpC2smo"
+                listOf(
+                    LiveListItemDTO(
+                        id = defaultId,
+                        live = LiveVideoDTO(
+                            title = "Liverpool vs Manchester United - Live Stream",
+                            description = "Default live stream",
+                            streamUrl = "https://www.youtube.com/watch?v=$defaultId",
+                            isLive = true,
+                            liveChatId = null,
+                            createdAt = System.currentTimeMillis()
+                        )
+                    )
+                )
+            }
+
+            val dt = System.currentTimeMillis() - started
+            log.info("[LiveAPI] GET /live-videos success count=${items.size} durationMs=$dt")
             call.respond(items)
         } catch (t: Throwable) {
-            call.respondText("Failed to fetch live videos: ${t.message}", status = io.ktor.http.HttpStatusCode.InternalServerError)
-        } finally {
-            yt.close()
+            val dt = System.currentTimeMillis() - started
+            log.warn("[LiveAPI] GET /live-videos error: ${t.message} durationMs=$dt", t)
+            // On failure, return empty list to avoid misleading results
+            call.respond(emptyList<LiveListItemDTO>())
         }
     }
 
@@ -191,6 +231,28 @@ fun Route.liveRoutes() {
             val count = LiveHub.heartbeat(clipId, hb.viewerId)
             try { LiveCommentsWSHub.broadcastViewerCount(clipId) } catch (_: Exception) {}
             call.respond(ViewerInfoResponse(clipId, count))
+        }
+
+        // Live chunk references: poll for latest uploaded chunk URLs
+        get("/chunks") {
+            val app = call.application
+            val streamUrl = call.request.queryParameters["stream_url"]
+            if (streamUrl.isNullOrBlank()) {
+                return@get call.respondText("Missing stream_url", status = io.ktor.http.HttpStatusCode.BadRequest)
+            }
+            val afterChunk = call.request.queryParameters["after_chunk"]?.toIntOrNull()
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 10
+            val svc = LiveChunkService(app.connectToMongoDB())
+            val chunks = svc.listByStreamUrl(streamUrl, afterChunk, limit)
+            val s3 = S3Utility(bucketName = "sportsclips-clip-store", region = "auto")
+            val dtos = chunks.map {
+                val url = try { s3.generatePresignedGetUrl(it.s3Key) } catch (_: Exception) {
+                    val s3h = S3Helper(app)
+                    s3h.directDownloadUrl(it.s3Key)
+                }
+                LiveChunkDTO(chunkNumber = it.chunkNumber, s3Key = it.s3Key, url = url)
+            }
+            call.respond(LiveChunksResponse(dtos))
         }
     }
 }

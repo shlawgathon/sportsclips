@@ -49,7 +49,11 @@ struct VideoPlayerView: View {
     }
 
     private func setupPlayer() {
-        player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
+        // Use async variant to fetch presigned URL when needed
+        Task {
+            let p = await playerManager.getPlayer(for: video)
+            await MainActor.run { self.player = p }
+        }
         // Don't auto-play here - let VideoFeedView handle play/pause logic
     }
 }

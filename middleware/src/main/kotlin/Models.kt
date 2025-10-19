@@ -45,13 +45,36 @@ data class LiveVideo(
     val streamUrl: String,
     val isLive: Boolean = true,
     val liveChatId: String? = null,
-    val createdAt: Long = Instant.now().epochSecond
+    val createdAt: Long = Instant.now().epochSecond,
+    // Progress fields for live generation/tracking
+    val updatedAt: Long? = null,
+    val lastChunkNumber: Int? = null,
+    val numChunksProcessed: Int? = null,
+    val format: String? = null,
+    val audioSampleRate: Int? = null,
+    val commentaryLengthBytes: Long? = null,
+    val videoLengthBytes: Long? = null
 ) {
     fun toDocument(): Document = Document.parse(json.encodeToString(this))
 
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
         fun fromDocument(document: Document): LiveVideo = json.decodeFromString(document.toJson())
+    }
+}
+
+@Serializable
+data class LiveChunk(
+    val streamUrl: String,
+    val chunkNumber: Int,
+    val s3Key: String,
+    val createdAt: Long = Instant.now().epochSecond
+) {
+    fun toDocument(): Document = Document.parse(json.encodeToString(this))
+
+    companion object {
+        private val json = Json { ignoreUnknownKeys = true }
+        fun fromDocument(document: Document): LiveChunk = json.decodeFromString(document.toJson())
     }
 }
 
@@ -211,6 +234,9 @@ class LiveVideoService(private val database: MongoDatabase) {
     init {
         try { database.createCollection("live_videos") } catch (_: Exception) {}
         collection = database.getCollection("live_videos")
+        try { collection.createIndex(Indexes.ascending("streamUrl"), IndexOptions().unique(true)) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.descending("updatedAt")) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.descending("createdAt")) } catch (_: Exception) {}
     }
 
     suspend fun listAll(): List<Pair<String, LiveVideo>> = withContext(Dispatchers.IO) {
@@ -225,6 +251,68 @@ class LiveVideoService(private val database: MongoDatabase) {
         val doc = live.toDocument()
         collection.insertOne(doc)
         doc["_id"].toString()
+    }
+
+    suspend fun upsertByStreamUrl(initial: LiveVideo): String = withContext(Dispatchers.IO) {
+        val existing = collection.find(Filters.eq("streamUrl", initial.streamUrl)).first()
+        if (existing != null) {
+            val id = existing["_id"].toString()
+            val current = LiveVideo.fromDocument(existing)
+            val updated = current.copy(
+                title = if (initial.title.isNotBlank()) initial.title else current.title,
+                description = if (initial.description.isNotBlank()) initial.description else current.description,
+                isLive = initial.isLive,
+                liveChatId = initial.liveChatId ?: current.liveChatId,
+                updatedAt = System.currentTimeMillis() / 1000
+            )
+            collection.findOneAndReplace(Filters.eq("_id", ObjectId(id)), updated.toDocument())
+            id
+        } else {
+            val doc = initial.copy(updatedAt = System.currentTimeMillis() / 1000).toDocument()
+            collection.insertOne(doc)
+            doc["_id"].toString()
+        }
+    }
+
+    suspend fun updateProgressByStreamUrl(
+        streamUrl: String,
+        lastChunkNumber: Int,
+        numChunksProcessed: Int?,
+        format: String,
+        audioSampleRate: Int,
+        commentaryLengthBytes: Long,
+        videoLengthBytes: Long
+    ) = withContext(Dispatchers.IO) {
+        val existing = collection.find(Filters.eq("streamUrl", streamUrl)).first()
+        if (existing != null) {
+            val id = existing["_id"].toString()
+            val current = LiveVideo.fromDocument(existing)
+            val updated = current.copy(
+                lastChunkNumber = lastChunkNumber,
+                numChunksProcessed = numChunksProcessed ?: current.numChunksProcessed,
+                format = format,
+                audioSampleRate = audioSampleRate,
+                commentaryLengthBytes = commentaryLengthBytes,
+                videoLengthBytes = videoLengthBytes,
+                updatedAt = System.currentTimeMillis() / 1000
+            )
+            collection.findOneAndReplace(Filters.eq("_id", ObjectId(id)), updated.toDocument())
+        } else {
+            val doc = LiveVideo(
+                title = "",
+                description = "",
+                streamUrl = streamUrl,
+                isLive = true,
+                updatedAt = System.currentTimeMillis() / 1000,
+                lastChunkNumber = lastChunkNumber,
+                numChunksProcessed = numChunksProcessed,
+                format = format,
+                audioSampleRate = audioSampleRate,
+                commentaryLengthBytes = commentaryLengthBytes,
+                videoLengthBytes = videoLengthBytes
+            ).toDocument()
+            collection.insertOne(doc)
+        }
     }
 }
 
@@ -505,5 +593,48 @@ class TrackedVideoService(private val database: MongoDatabase) {
 
     suspend fun listAll(): List<Pair<String, TrackedVideo>> = withContext(Dispatchers.IO) {
         collection.find().map { it["_id"].toString() to TrackedVideo.fromDocument(it) }.toList()
+    }
+}
+
+
+class LiveChunkService(private val database: MongoDatabase) {
+    private val collection: MongoCollection<Document>
+
+    init {
+        try { database.createCollection("live_chunks") } catch (_: Exception) {}
+        collection = database.getCollection("live_chunks")
+        try { collection.createIndex(Indexes.ascending("streamUrl", "chunkNumber"), IndexOptions().unique(true)) } catch (_: Exception) {}
+        try { collection.createIndex(Indexes.descending("createdAt")) } catch (_: Exception) {}
+    }
+
+    suspend fun addChunk(chunk: LiveChunk) = withContext(Dispatchers.IO) {
+        val existing = collection.find(
+            Filters.and(
+                Filters.eq("streamUrl", chunk.streamUrl),
+                Filters.eq("chunkNumber", chunk.chunkNumber)
+            )
+        ).first()
+        if (existing == null) {
+            collection.insertOne(chunk.toDocument())
+        } else {
+            collection.findOneAndReplace(
+                Filters.eq("_id", existing["_id"]),
+                chunk.toDocument()
+            )
+        }
+    }
+
+    suspend fun listByStreamUrl(streamUrl: String, afterChunk: Int? = null, limit: Int = 10): List<LiveChunk> = withContext(Dispatchers.IO) {
+        val filter = if (afterChunk != null) {
+            Filters.and(
+                Filters.eq("streamUrl", streamUrl),
+                Filters.gt("chunkNumber", afterChunk)
+            )
+        } else Filters.eq("streamUrl", streamUrl)
+        collection.find(filter)
+            .sort(Document("chunkNumber", 1))
+            .limit(limit)
+            .map(LiveChunk::fromDocument)
+            .toList()
     }
 }

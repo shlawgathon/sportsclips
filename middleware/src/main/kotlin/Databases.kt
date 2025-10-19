@@ -5,7 +5,11 @@ import com.mongodb.client.MongoClients
 import com.mongodb.client.MongoDatabase
 import gg.growly.services.Env
 import gg.growly.services.S3Helper
+import gg.growly.services.Snippet
+import gg.growly.services.VideoId
 import gg.growly.services.VoyageClient
+import gg.growly.services.YouTubeSearchItem
+import gg.growly.services.YouTubeSearchResponse
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
@@ -105,6 +109,27 @@ fun Application.configureDatabases()
                                                 )
                                             )
                                             log.debug("[YT-SCHEDULER] Upserted TrackedVideo id=$id videoId=$videoId sport=${sp.name}")
+
+                                            // Ensure background live producer/tracker is running for this sourceUrl and store LiveVideo record for client discovery
+                                            try {
+                                                // Upsert initial LiveVideos record with basic info
+                                                val liveId = liveService.upsertByStreamUrl(
+                                                    LiveVideo(
+                                                        title = item.snippet.title,
+                                                        description = item.snippet.description,
+                                                        streamUrl = sourceUrl,
+                                                        isLive = true
+                                                    )
+                                                )
+                                                log.debug("[YT-SCHEDULER] Upserted LiveVideo id=$liveId for url=$sourceUrl")
+                                            } catch (e: Exception) {
+                                                log.warn("[YT-SCHEDULER] LiveVideo upsert failed for url=$sourceUrl reason=${e.message}")
+                                            }
+                                            try {
+                                                LiveStreamCache.ensureBackgroundStart(this@configureDatabases, sourceUrl, true)
+                                            } catch (e: Exception) {
+                                                log.warn("[YT-SCHEDULER] ensureBackgroundStart failed for url=$sourceUrl reason=${e.message}")
+                                            }
 
                                             // Decide whether to kick off ingestion for this video
                                             val existing = trackedVideoService.getByYouTubeId(videoId)

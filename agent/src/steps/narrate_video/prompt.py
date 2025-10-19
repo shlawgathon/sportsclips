@@ -24,6 +24,8 @@ Examples of good narrations:
 - "What a save by the goalkeeper! Lev Yashin saves another one!"
 - "Touchdown! Frank Gore wins the game for the 49ers!"
 
+{previous_narrations}
+
 Use the report_video_narration function to provide your narration text."""
 
 # Tool/function declaration for video narration
