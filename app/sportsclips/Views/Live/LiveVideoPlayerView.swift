@@ -79,10 +79,12 @@ struct LiveVideoPlayerView: View {
     }
 
     private func findVideoPlayerView(in view: UIView) -> AVPlayerViewController? {
+        // Use a more robust approach to find AVPlayerViewController
+        if view is AVPlayerViewController {
+            return view as? AVPlayerViewController
+        }
+        
         for subview in view.subviews {
-            if let playerVC = subview as? AVPlayerViewController {
-                return playerVC
-            }
             if let found = findVideoPlayerView(in: subview) {
                 return found
             }
