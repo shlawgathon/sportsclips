@@ -621,39 +621,31 @@ class SlidingWindowPipeline:
         fps: float,
     ) -> None:
         """
-        Consumer: Process 8-second chunks (2x 4-second base chunks) with Live API commentary.
+        Consumer: Process 8-second chunks (2x 4-second base chunks) with narration and speech.
 
-        Buffering approach:
+        New two-step approach:
         1. Buffer 2 consecutive 4-second chunks from queue
         2. Concatenate them upfront into a single 8-second chunk
-        3. Extract frames at specified FPS from the combined chunk
-        4. Send all frames to Gemini Live API
-        5. Send prompt to trigger commentary generation
-        6. Collect complete audio response from Live API
-        7. Stitch audio with the 8-second video chunk
-        8. Create fragmented MP4 for streaming
-        9. Send complete audio+video package through websockets
-        10. Repeat for next pair of chunks
-
-        This approach ensures proper synchronization and clean 8-second results.
+        3. Generate text narration from the video using Gemini (narrate_video_step)
+        4. Convert the narration text to speech using Live API (speak_text_step)
+        5. Stitch audio with the 8-second video chunk
+        6. Create fragmented MP4 for streaming
+        7. Send complete audio+video package through websockets
+        8. Repeat for next pair of chunks
 
         Args:
             queue: Queue to read chunks from (4-second base chunks)
             video_url: Source video URL
             ws: WebSocket connection for sending results
-            system_instruction: System instruction for Gemini model
-            prompt: User prompt for commentary generation
-            fps: Frames per second to extract from video chunks (default: 4.0)
+            system_instruction: System instruction for text-to-speech
+            prompt: Not used anymore (kept for backward compatibility)
+            fps: Not used anymore (kept for backward compatibility)
         """
         import base64
         import json
 
-        from .live import (
-            create_fragmented_mp4,
-            extract_frames_from_chunk,
-            stitch_audio_video,
-        )
-        from .llm import GeminiLiveClient
+        from .live import create_fragmented_mp4, stitch_audio_video
+        from .steps import narrate_video_step, speak_text_step
 
         async def concatenate_two_chunks(chunk1: bytes, chunk2: bytes) -> bytes:
             """
@@ -719,7 +711,6 @@ class SlidingWindowPipeline:
         async def process_combined_chunk(
             combined_chunk: bytes,
             chunk_number: int,
-            live_client: GeminiLiveClient,
         ) -> None:
             """
             Process a single 8-second combined chunk through the full pipeline.
@@ -727,49 +718,39 @@ class SlidingWindowPipeline:
             Args:
                 combined_chunk: 8-second video chunk
                 chunk_number: Sequential chunk number for tracking
-                live_client: Connected Gemini Live API client
             """
             try:
                 logger.info(
                     f"[Live Commentary] Processing 8-second chunk {chunk_number}..."
                 )
 
-                # Step 1: Extract frames from the combined chunk
-                frames = await asyncio.to_thread(
-                    extract_frames_from_chunk, combined_chunk, fps
+                # Create metadata for this chunk
+                metadata: dict[str, Any] = {
+                    "src_video_url": video_url,
+                    "chunk_number": chunk_number,
+                    "chunk_duration": 8,
+                }
+
+                # Step 1: Generate text narration from video
+                logger.info("[Live Commentary] Step 1: Generating text narration...")
+                narration_text, metadata = await narrate_video_step(
+                    combined_chunk, metadata
                 )
-                if not frames:
+                logger.info(f"[Live Commentary] Narration text: '{narration_text}'")
+
+                if not narration_text:
                     logger.warning(
-                        f"[Live Commentary] No frames extracted from chunk {chunk_number}, skipping"
+                        f"[Live Commentary] No narration generated for chunk {chunk_number}, skipping"
                     )
                     return
 
-                logger.info(
-                    f"[Live Commentary] Extracted {len(frames)} frames from chunk {chunk_number}"
+                # Step 2: Convert text to speech using Live API
+                logger.info("[Live Commentary] Step 2: Converting text to speech...")
+                audio_pcm, metadata = await speak_text_step(
+                    narration_text, metadata, system_instruction=system_instruction
                 )
-
-                # Step 2: Send all frames to Live API
-                for frame in frames:
-                    await live_client.send_frame(frame)
-                logger.info(f"[Live Commentary] Sent {len(frames)} frames to Live API")
-
-                # Step 3: Send prompt to trigger commentary generation
-                await live_client.send(prompt, end_of_turn=True)
                 logger.info(
-                    "[Live Commentary] Sent prompt, waiting for audio response..."
-                )
-
-                # Step 4: Collect complete audio response
-                audio_chunks: list[bytes] = []
-                async for audio_chunk in live_client.receive_audio_chunks():
-                    audio_chunks.append(audio_chunk)
-                    # Limit collection for minimal commentary (3-12 words ~2-3 seconds)
-                    if len(audio_chunks) >= 60:
-                        break
-
-                audio_pcm = b"".join(audio_chunks)
-                logger.info(
-                    f"[Live Commentary] Collected {len(audio_chunks)} audio chunks ({len(audio_pcm):,} bytes)"
+                    f"[Live Commentary] Generated speech: {len(audio_pcm):,} bytes"
                 )
 
                 if not audio_pcm:
@@ -778,7 +759,7 @@ class SlidingWindowPipeline:
                     )
                     return
 
-                # Step 5: Stitch audio with the 8-second video
+                # Step 3: Stitch audio with the 8-second video
                 stitched_video = await asyncio.to_thread(
                     stitch_audio_video, combined_chunk, audio_pcm, 24000
                 )
@@ -786,7 +767,7 @@ class SlidingWindowPipeline:
                     f"[Live Commentary] Stitched audio+video: {len(stitched_video):,} bytes"
                 )
 
-                # Step 6: Create fragmented MP4 for streaming
+                # Step 4: Create fragmented MP4 for streaming
                 fragmented_video = await asyncio.to_thread(
                     create_fragmented_mp4, stitched_video
                 )
@@ -794,7 +775,7 @@ class SlidingWindowPipeline:
                     f"[Live Commentary] Created fragmented MP4: {len(fragmented_video):,} bytes"
                 )
 
-                # Step 7: Send complete package through websockets
+                # Step 5: Send complete package through websockets
                 message = json.dumps(
                     {
                         "type": "live_commentary_chunk",
@@ -811,6 +792,8 @@ class SlidingWindowPipeline:
                                 "video_length_bytes": len(fragmented_video),
                                 "base_chunks_combined": 2,
                                 "total_duration_seconds": 8,
+                                "narration_text": narration_text,
+                                **metadata,
                             },
                         },
                     }
@@ -826,7 +809,7 @@ class SlidingWindowPipeline:
                     await asyncio.to_thread(ws.send, message)
 
                 logger.info(
-                    f"[Live Commentary] ✓ Successfully sent chunk {chunk_number} with commentary"
+                    f"[Live Commentary] ✓ Successfully sent chunk {chunk_number} with narration"
                 )
 
             except Exception as e:
@@ -836,19 +819,13 @@ class SlidingWindowPipeline:
                 )
 
         # Main processing loop
-        live_client = None
         chunk_number = 0
         chunk_buffer: list[bytes] = []
 
         try:
             logger.info(
-                "[Live Commentary] Starting 8-second chunk commentary pipeline..."
+                "[Live Commentary] Starting 8-second chunk narration pipeline..."
             )
-
-            # Create and connect Live API client once for entire session
-            live_client = GeminiLiveClient(system_instruction=system_instruction)
-            await live_client.connect()
-            logger.info("[Live Commentary] ✓ Connected to Gemini Live API")
 
             # Process pairs of 4-second chunks as 8-second chunks
             while True:
@@ -863,9 +840,7 @@ class SlidingWindowPipeline:
                         )
                         chunk_number += 1
                         # Process single chunk as-is (won't be 8 seconds but better than dropping it)
-                        await process_combined_chunk(
-                            chunk_buffer[0], chunk_number, live_client
-                        )
+                        await process_combined_chunk(chunk_buffer[0], chunk_number)
 
                     logger.info("[Live Commentary] Received completion signal")
                     break
@@ -894,7 +869,7 @@ class SlidingWindowPipeline:
                 )
 
                 # Process the combined 8-second chunk through the full pipeline
-                await process_combined_chunk(combined_chunk, chunk_number, live_client)
+                await process_combined_chunk(combined_chunk, chunk_number)
 
             logger.info(
                 f"[Live Commentary] Pipeline complete! Processed {chunk_number} total chunks"
@@ -902,14 +877,6 @@ class SlidingWindowPipeline:
 
         except Exception as e:
             logger.error(f"[Live Commentary] Pipeline error: {e}", exc_info=True)
-        finally:
-            # Clean up Live API connection
-            if live_client:
-                try:
-                    await live_client.disconnect()
-                    logger.info("[Live Commentary] Disconnected from Live API")
-                except Exception as e:
-                    logger.error(f"[Live Commentary] Error disconnecting: {e}")
 
 
 def create_highlight_pipeline(

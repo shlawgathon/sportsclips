@@ -15,6 +15,13 @@ from .detect_highlight import (
     HighlightDetector,
     detect_highlight_step,
 )
+from .narrate_video import (
+    NARRATE_VIDEO_PROMPT,
+    NARRATE_VIDEO_TOOL,
+    VideoNarrator,
+    narrate_video_step,
+)
+from .speak_text import TextSpeaker, speak_text_step
 from .trim_highlight import (
     TRIM_HIGHLIGHT_PROMPT,
     HighlightTrimmer,
@@ -34,4 +41,12 @@ __all__ = [
     "caption_highlight_step",
     "HighlightCaptioner",
     "CAPTION_HIGHLIGHT_PROMPT",
+    # Narrate video
+    "narrate_video_step",
+    "VideoNarrator",
+    "NARRATE_VIDEO_PROMPT",
+    "NARRATE_VIDEO_TOOL",
+    # Speak text
+    "speak_text_step",
+    "TextSpeaker",
 ]
