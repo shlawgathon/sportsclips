@@ -1,13 +1,12 @@
 import json
 import logging
+import shlex
 import subprocess
 import sys
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Generator
-import shlex
-
 
 logger = logging.getLogger(__name__)
 
@@ -403,8 +402,9 @@ def stream_video_chunks(
             # Default: jump to live edge for live streams
             cmd.append("--no-live-from-start")
 
-        # Add HLS/MPEGTS support for live streams
-        cmd.append("--hls-use-mpegts")
+        # Note: --hls-use-mpegts can cause audio issues when streaming to stdout
+        # because MPEG-TS muxing may not properly include audio streams.
+        # Removed to ensure audio is included in the output.
 
         # Add any additional options
         if additional_options:
