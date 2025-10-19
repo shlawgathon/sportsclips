@@ -58,17 +58,40 @@ class MockWebSocket:
                 import base64
 
                 video_data = base64.b64decode(msg["data"]["video_data"])
-                title = msg["data"]["metadata"]["title"]
+                metadata = msg["data"]["metadata"]
+                title = metadata["title"]
+                description = metadata["description"]
 
-                output_filename = f"highlight_{self.saved_count:04d}.mp4"
-                output_path = self.output_dir / output_filename
+                # Create base filename
+                base_filename = f"highlight_{self.saved_count:04d}"
 
-                with open(output_path, "wb") as f:
+                # Save video file
+                video_filename = f"{base_filename}.mp4"
+                video_path = self.output_dir / video_filename
+                with open(video_path, "wb") as f:
                     f.write(video_data)
 
+                # Save metadata file
+                metadata_filename = f"{base_filename}.json"
+                metadata_path = self.output_dir / metadata_filename
+                with open(metadata_path, "w") as f:
+                    json.dump(
+                        {
+                            "title": title,
+                            "description": description,
+                            "src_video_url": metadata.get("src_video_url", ""),
+                            "video_file": video_filename,
+                        },
+                        f,
+                        indent=2,
+                    )
+
                 logger.info(
-                    f"✓ Saved highlight {self.saved_count + 1}: {output_filename} "
-                    f'({len(video_data)} bytes) - "{title}"'
+                    f"✓ Saved highlight {self.saved_count + 1}:\n"
+                    f"  Video: {video_filename} ({len(video_data)} bytes)\n"
+                    f'  Title: "{title}"\n'
+                    f'  Description: "{description}"\n'
+                    f"  Metadata: {metadata_filename}"
                 )
 
                 self.saved_count += 1

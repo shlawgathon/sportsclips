@@ -336,7 +336,7 @@ def create_highlight_pipeline(
     Returns:
         Configured SlidingWindowPipeline instance
     """
-    from .steps.agent import (
+    from .steps import (
         caption_highlight_step,
         detect_highlight_step,
         trim_highlight_step,
