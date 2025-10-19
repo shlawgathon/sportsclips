@@ -10,30 +10,30 @@ import SwiftUI
 struct GameBubble: View {
     let gameName: String
     let action: () -> Void
-    
+
     @State private var isPressed = false
-    
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: "gamecontroller.fill")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white.opacity(0.9))
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(gameName)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white.opacity(0.9))
                         .lineLimit(1)
-                    
+
                     Text("Click to watch more...")
                         .font(.system(size: 11, weight: .regular))
                         .foregroundColor(.white.opacity(0.7))
                         .lineLimit(1)
                 }
-                
+
                 Spacer()
-                
+
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white.opacity(0.6))
@@ -60,7 +60,7 @@ struct GameBubble: View {
                                 )
                         )
                         .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-                    
+
                     // Subtle inner glow
                     Capsule()
                         .fill(
@@ -90,7 +90,7 @@ struct GameBubble: View {
 #Preview {
     ZStack {
         Color.black.ignoresSafeArea()
-        
+
         GameBubble(gameName: "Lakers vs Warriors") {
             print("Game bubble tapped")
         }

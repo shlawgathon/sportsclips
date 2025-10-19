@@ -364,8 +364,8 @@ final class APIClient {
         try await request("/games", response: [GameListItem].self)
     }
 
-    func getGame(gameId: String) async throws -> GameListItem {
-        try await request("/games/\(gameId)", response: GameListItem.self)
+    func getGame(gameId: String) async throws -> LiveGame {
+        try await request("/games/\(gameId)", response: LiveGame.self)
     }
 
     // MARK: - Catalog
