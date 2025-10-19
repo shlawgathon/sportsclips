@@ -74,36 +74,6 @@ The server streams JSON messages. Six message types are defined:
 - `data.metadata.video_length_bytes`: Size of the final video with commentary in bytes
 - `data.metadata.num_chunks_processed`: Number of video chunks that were processed
 
-##### Live Commentary Message (Legacy)
-```json
-{
-  "type": "live_commentary",
-  "data": {
-    "video_data": "<base64-encoded-mp4-data>",
-    "metadata": {
-      "src_video_url": "string",
-      "format": "fragmented_mp4",
-      "audio_sample_rate": 24000,
-      "commentary_length_bytes": 123456,
-      "video_length_bytes": 234567,
-      "num_chunks_processed": 10
-    }
-  }
-}
-```
-
-**Fields:**
-- `type`: Always `"live_commentary"`
-- `data.video_data`: Base64-encoded fragmented MP4 video data with AI-generated audio commentary
-- `data.metadata.src_video_url`: Original source video URL
-- `data.metadata.format`: Video format (always "fragmented_mp4")
-- `data.metadata.audio_sample_rate`: Sample rate of the generated audio commentary (24000 Hz)
-- `data.metadata.commentary_length_bytes`: Size of the raw audio commentary in bytes
-- `data.metadata.video_length_bytes`: Size of the final video with commentary in bytes
-- `data.metadata.num_chunks_processed`: Number of video chunks that were processed
-
-**Note:** This message type is kept for backwards compatibility but the pipeline now primarily uses `live_commentary_chunk` messages for better streaming control.
-
 ##### Error Message
 ```json
 {
