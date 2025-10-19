@@ -138,7 +138,7 @@ struct GameClipsView: View {
                                                     isLiked: videoLikeStates[video.id] ?? false
                                                 )
                                             }
-                                            .padding(.bottom, 80) // Reduced gap to match VideoFeedView
+                                            .padding(.bottom, 98) // Exactly 10px gap to menu bar
                                         }
                                         .zIndex(2)
 

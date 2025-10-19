@@ -66,7 +66,7 @@ struct CommentSectionView: View {
                     ProgressView("Loading comments...")
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.top, 50)
+                        .padding(.top, 35) // Moved up 15px
                 } else if comments.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "message")
@@ -82,7 +82,7 @@ struct CommentSectionView: View {
                             .foregroundColor(.gray)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.top, 50)
+                    .padding(.top, 35) // Moved up 15px
                 } else {
                     ForEach(comments, id: \.id) { commentItem in
                         CommentRowView(comment: commentItem.comment, postedByUsername: commentItem.postedByUsername)

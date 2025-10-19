@@ -9,10 +9,6 @@ import SwiftUI
 
 struct MainTabView: View {
     @State private var selectedTab = 0 // Start with All tab
-    @State private var isMenuVisible = true
-    @State private var menuOffset: CGFloat = 0
-    @State private var dragOffset: CGFloat = 0
-    @State private var isDragging = false
     
     var body: some View {
         ZStack {
@@ -34,13 +30,23 @@ struct MainTabView: View {
                     VStack {
                         Spacer()
 
-                        DraggableGlassMenu(
-                            selectedTab: $selectedTab,
-                            isMenuVisible: $isMenuVisible,
-                            menuOffset: $menuOffset,
-                            dragOffset: $dragOffset,
-                            isDragging: $isDragging
+                        LiquidGlassSegmentedControl(
+                            selectedIndex: $selectedTab,
+                            items: [
+                                SegmentedItem(icon: "video.circle", title: "Live", tag: 0),
+                                SegmentedItem(icon: "flame.fill", title: "Highlight", tag: 1),
+                                SegmentedItem(icon: "person.circle", title: "Profile", tag: 2)
+                            ],
+                            onSelectionChanged: { index in
+                                // Animate the tab selection
+                                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                    selectedTab = index
+                                }
+                                print("Tab selected: \(index)")
+                            }
                         )
+                        .padding(.horizontal, 20) // 10px shorter on each side (was 16px default)
+                        .padding(.bottom, -20) // Move down 30px
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .safeAreaInset(edge: .bottom) {
@@ -48,171 +54,6 @@ struct MainTabView: View {
                     }
         }
         .preferredColorScheme(.dark)
-    }
-}
-
-struct DraggableGlassMenu: View {
-    @Binding var selectedTab: Int
-    @Binding var isMenuVisible: Bool
-    @Binding var menuOffset: CGFloat
-    @Binding var dragOffset: CGFloat
-    @Binding var isDragging: Bool
-    
-    @State private var dragGesture = DragGesture()
-    
-    var body: some View {
-        HStack(spacing: 0) {
-            CapsuleTab(
-                icon: "video.circle",
-                title: "Live",
-                isSelected: selectedTab == 0,
-                action: { 
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        selectedTab = 0
-                    }
-                }
-            )
-            
-            CapsuleTab(
-                icon: "flame.fill",
-                title: "Highlight",
-                isSelected: selectedTab == 1,
-                action: { 
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        selectedTab = 1
-                    }
-                }
-            )
-            
-            CapsuleTab(
-                icon: "person.circle",
-                title: "Profile",
-                isSelected: selectedTab == 2,
-                action: { 
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        selectedTab = 2
-                    }
-                }
-            )
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .liquidGlass(
-            material: .ultraThinMaterial,
-            cornerRadius: 25,
-            shadowRadius: 12,
-            glowIntensity: isDragging ? 0.2 : 0.1
-        )
-        .padding(.horizontal, 16)
-        .padding(.bottom, -30) // No bottom padding - stick to bottom
-        .offset(y: dragOffset)
-        .scaleEffect(isDragging ? 1.02 : 1.0)
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: isDragging)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    isDragging = true
-                    dragOffset = value.translation.height
-                    
-                    // Add haptic feedback when dragging starts
-                    if abs(value.translation.height) > 10 {
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-                        impactFeedback.impactOccurred()
-                    }
-                }
-                .onEnded { value in
-                    isDragging = false
-                    
-                    // Determine if menu should hide based on drag distance and velocity
-                    let shouldHide = value.translation.height > 50 || value.predictedEndTranslation.height > 100
-                    
-                    withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                        if shouldHide {
-                            isMenuVisible = false
-                            menuOffset = 100
-                        }
-                        dragOffset = 0
-                    }
-                }
-        )
-        .onLongPressGesture(minimumDuration: 0.1, maximumDistance: .infinity, pressing: { pressing in
-            // Enhanced visual feedback on press
-            withAnimation(.easeInOut(duration: 0.1)) {
-                isDragging = pressing
-            }
-        }, perform: {})
-        .onTapGesture(count: 2) {
-            // Double tap to toggle menu
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                isMenuVisible.toggle()
-                menuOffset = isMenuVisible ? 0 : 100
-            }
-        }
-        .opacity(isMenuVisible ? 1 : 0)
-        .offset(y: menuOffset)
-        .onAppear {
-            // Keep menu visible - no auto-hide
-            isMenuVisible = true
-            menuOffset = 0
-        }
-    }
-}
-
-struct CapsuleTab: View {
-    let icon: String
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-    
-    @State private var isPressed = false
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.6))
-                    .symbolEffect(.bounce, value: isSelected)
-                
-                Text(title)
-                    .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.6))
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
-            .background(
-                ZStack {
-                    // Selected state - ultra-thin following Apple HIG
-                    if isSelected {
-                        Capsule()
-                            .fill(.thinMaterial)
-                            .overlay(
-                                Capsule()
-                                    .stroke(
-                                        LinearGradient(
-                                            colors: [
-                                                .white.opacity(0.3),
-                                                .white.opacity(0.1)
-                                            ],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        ),
-                                        lineWidth: 0.8
-                                    )
-                            )
-                            .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                    }
-                }
-            )
-            .contentShape(Capsule())
-        }
-        .buttonStyle(PlainButtonStyle())
-        .scaleEffect(isPressed ? 0.95 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
-        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isPressed)
-        .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
-            isPressed = pressing
-        }, perform: {})
     }
 }
 

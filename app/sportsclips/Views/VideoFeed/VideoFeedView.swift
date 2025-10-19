@@ -44,16 +44,28 @@ struct VideoFeedView: View {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     .scaleEffect(1.5)
+                    .ignoresSafeArea()
             } else if filteredVideos.isEmpty {
-                VStack(spacing: 20) {
-                    Image(systemName: "flame")
-                        .font(.system(size: 60, weight: .light))
-                        .foregroundColor(.white.opacity(0.6))
+                GeometryReader { geometry in
+                    VStack {
+                        Spacer()
 
-                    Text("No videos available")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(.white.opacity(0.7))
+                        VStack(spacing: 20) {
+                            Image(systemName: "flame")
+                                .font(.system(size: 60, weight: .light))
+                                .foregroundColor(.white.opacity(0.6))
+
+                            Text("No videos available")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                        .padding(.bottom, 98) // Exactly 10px gap to menu bar
+
+                        Spacer()
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
                 }
+                .ignoresSafeArea()
             } else {
                 GeometryReader { geometry in
                     ScrollViewReader { proxy in
@@ -155,7 +167,7 @@ struct VideoFeedView: View {
                                                     }
                                                 )
                                             }
-                                            .padding(.bottom, 80) // Same gap for both states
+                                            .padding(.bottom, 98) // Exactly 10px gap to menu bar
                                         }
                                         .zIndex(2) // Above everything else
 
@@ -307,8 +319,10 @@ struct VideoFeedView: View {
                             }
                         }
                         .padding(.horizontal, 16)
+                        .padding(.vertical, 8) // Add vertical padding to prevent cutoff
                     }
-                    .padding(.top, 8) // Minimal top padding
+                    .padding(.top, 35) // Increased top padding for safe area (moved up 15px)
+                    .frame(maxHeight: 60) // Ensure enough height for the bubbles
 
                     Spacer()
                 }
@@ -695,9 +709,12 @@ struct SportBubble: View {
                 Text(sport.rawValue)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(isSelected ? .white : .white.opacity(0.7))
+                    .lineLimit(1) // Ensure text doesn't wrap
+                    .minimumScaleFactor(0.8) // Allow slight scaling for long text
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12) // Increased vertical padding
+            .frame(minHeight: 44) // Ensure minimum height for touch targets
             .background(
                 ZStack {
                     // Outer glow for selected state
