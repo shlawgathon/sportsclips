@@ -149,6 +149,7 @@ final class APIClient {
     func getMe() async throws -> MeResponse {
         try await request("/user/me", response: MeResponse.self)
     }
+    // {"detail":"The request body is not valid JSON, or some arguments were not specified properly. In particular, Error for argument '79': JSON decode error"}
     func updateUserProfile(displayName: String? = nil, profilePictureBase64: String? = nil) async throws -> MeResponse {
         try await request("/user/profile", method: "POST", body: UpdateProfileRequest(displayName: displayName, profilePictureBase64: profilePictureBase64), response: MeResponse.self)
     }

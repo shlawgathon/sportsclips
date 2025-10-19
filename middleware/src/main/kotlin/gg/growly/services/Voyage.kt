@@ -43,7 +43,12 @@ class VoyageClient {
         val resp = client.post("https://api.voyageai.com/v1/embeddings") {
             contentType(ContentType.Application.Json)
             headers { append(HttpHeaders.Authorization, "Bearer $key") }
-            setBody("{\"model\": \"$model\", \"input\": \"$text\"}")
+            setBody(
+                Json.encodeToString(EmbeddingRequest(
+                    model = model,
+                    input = text
+                ))
+            )
         }
         println(resp.bodyAsText())
         if (!resp.status.isSuccess()) return null
