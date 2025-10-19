@@ -107,10 +107,14 @@ final class LiveVideoService: NSObject {
                 case .data(let data):
                     // Expect binary frames to immediately follow a metadata text for live chunks
                     if let meta = self.pendingChunkMeta {
+                        let preview = data.prefix(32).map { String(format: "%02x", $0) }.joined()
+                        print("[LiveVideoService][CHUNK] chunk=\(meta.chunk_number) bytes=\(data.count) fmt=\(meta.format) previewHex=\(preview)")
                         self.log.debug("[conn:\(self.connectionId)] <- binary bytes=\(data.count) chunk=\(meta.chunk_number)")
                         onChunk(data, meta)
                         self.pendingChunkMeta = nil
                     } else {
+                        let preview = data.prefix(32).map { String(format: "%02x", $0) }.joined()
+                        print("[LiveVideoService][CHUNK] no-meta bytes=\(data.count) previewHex=\(preview)")
                         self.log.debug("[conn:\(self.connectionId)] <- binary (no pending meta) bytes=\(data.count)")
                         // Unknown binary payload; ignore for now
                     }
@@ -133,6 +137,8 @@ final class LiveVideoService: NSObject {
             if let decoded = try? JSONDecoder().decode(LiveCommentaryChunk.self, from: Data(text.utf8)) {
                 // If video_data present (legacy base64 path), decode inline; otherwise, store metadata and wait for binary frame
                 if let b64 = decoded.data.video_data, let raw = Data(base64Encoded: b64) {
+                    let preview = raw.prefix(32).map { String(format: "%02x", $0) }.joined()
+                    print("[LiveVideoService][CHUNK] inline chunk=\(decoded.data.metadata.chunk_number) bytes=\(raw.count) fmt=\(decoded.data.metadata.format) previewHex=\(preview)")
                     self.log.info("[conn:\(self.connectionId)] live_commentary_chunk inline bytes=\(raw.count) chunk=\(decoded.data.metadata.chunk_number) fmt=\(decoded.data.metadata.format)")
                     onChunk(raw, decoded.data.metadata)
                 } else {
@@ -161,6 +167,10 @@ final class LiveVideoService: NSObject {
     func pollLiveChunks(streamUrl: String, afterChunk: Int? = nil, limit: Int = 5) async -> [LiveClipRef] {
         do {
             let chunks = try await APIClient.shared.liveFetchChunks(streamUrl: streamUrl, afterChunk: afterChunk, limit: limit)
+            if !chunks.isEmpty {
+                print("[LiveVideoService][POLL] stream=\(streamUrl) after=\(afterChunk ?? -1) -> count=\(chunks.count)")
+                for c in chunks { print("[LiveVideoService][POLL] chunk=\(c.chunkNumber) url=\(c.url)") }
+            }
             return chunks.map { LiveClipRef(chunkNumber: $0.chunkNumber, s3Key: $0.s3Key, url: $0.url) }
         } catch {
             self.log.error("[poll] failed: \(error.localizedDescription)")

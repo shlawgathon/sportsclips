@@ -105,7 +105,7 @@ struct LiveVideoPlayerView: View {
 
     private func connectLive() {
         guard let gameId = video.gameId, !gameId.isEmpty else { return }
-        let sourceUrl = "https://www.youtube.com/watch?v=\(gameId)"
+        let sourceUrl = video.videoURL
         print("[LiveVideoPlayerView][DEBUG] connectLive gameId=\(gameId) src=\(sourceUrl)")
         // Start polling for chunk references and enqueue by order
         livePollTask?.cancel()
@@ -116,6 +116,7 @@ struct LiveVideoPlayerView: View {
                 if !chunks.isEmpty {
                     print("[LiveVideoPlayerView][DEBUG] polled chunks count=\(chunks.count) lastChunkBefore=\(lastChunk)")
                     for ch in chunks {
+                        print("[LiveVideoPlayerView][POLL] chunk=\(ch.chunkNumber) url=\(ch.url)")
                         if let url = URL(string: ch.url) {
                             liveBufferMap[ch.chunkNumber] = url
                             lastChunk = max(lastChunk, ch.chunkNumber)
@@ -138,6 +139,7 @@ struct LiveVideoPlayerView: View {
 
         var enqueued = 0
         while let url = liveBufferMap[nextExpectedChunk] {
+            print("[LiveVideoPlayerView][ENQUEUE] chunk=\(nextExpectedChunk) url=\(url.absoluteString)")
             if let item = makeItem(url: url) {
                 queuePlayer?.insert(item, after: nil)
                 enqueued += 1

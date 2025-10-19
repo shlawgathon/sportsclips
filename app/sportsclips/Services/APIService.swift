@@ -123,7 +123,7 @@ class APIService {
                 let sport = VideoClip.Sport(rawValue: "All") ?? .all
                 return VideoClip(
                     id: item.id,
-                    videoURL: "", // live playback via websocket, not direct URL
+                    videoURL: item.live.streamUrl,
                     caption: live.description,
                     sport: sport,
                     likes: 0,

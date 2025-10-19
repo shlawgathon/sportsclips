@@ -380,6 +380,14 @@ struct LiveView: View {
                     }
                     self.isLoading = false
 
+                    print("[LiveView][INFO] detected live videos count=\(videos.count)")
+                    for v in videos {
+                        let src = (v.gameId?.isEmpty == false) ? "https://www.youtube.com/watch?v=\(v.gameId!)" : v.videoURL
+                        let title = v.title ?? ""
+                        let desc = v.description ?? ""
+                        print("[LiveView][INFO] live id=\(v.id) title=\(title) src=\(src) desc=\(desc.prefix(120))")
+                    }
+
                     // Auto-play first video (non-live only; live playback handled in LiveVideoPlayerView)
                     if let first = filteredVideos.first {
                         if (first.gameId == nil) || (first.gameId?.isEmpty == true) {
@@ -389,61 +397,16 @@ struct LiveView: View {
                     }
                 }
             } catch {
-                print("⚠️ Live videos API not ready yet: \(error)")
-                // For UI testing, create mock live videos when backend is not ready
+                print("[LiveView][ERROR] Failed to fetch live videos: \(error)")
                 await MainActor.run {
-                    self.liveVideos = createMockLiveVideos()
-                    // Filter by sport and randomize order when "All" is selected
-                    if self.selectedSport == .all {
-                        self.filteredVideos = self.liveVideos.shuffled()
-                    } else {
-                        self.filteredVideos = self.liveVideos.filter { $0.sport == self.selectedSport }
-                    }
                     self.isLoading = false
-
-                    // Auto-play first video
-                    if !filteredVideos.isEmpty {
-                        playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
-                        localStorage.recordView(videoId: filteredVideos[0].id)
-                    }
+                    self.liveVideos = []
+                    self.filteredVideos = []
                 }
             }
         }
     }
-    
-    // Mock data for UI testing when backend is not ready
-    private func createMockLiveVideos() -> [VideoClip] {
-        return [
-            VideoClip(
-                id: "mock-live-1",
-                videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                caption: "Mock Live Basketball Game - Lakers vs Warriors",
-                sport: .basketball,
-                likes: 1250,
-                comments: 89,
-                shares: 45,
-                createdAt: Date(),
-                s3Key: "mock-live-1.mp4",
-                title: "Lakers vs Warriors Live",
-                description: "Live basketball game between Lakers and Warriors",
-                gameId: "mock-game-1"
-            ),
-            VideoClip(
-                id: "mock-live-2", 
-                videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-                caption: "Mock Live Football Game - Patriots vs Chiefs",
-                sport: .football,
-                likes: 2100,
-                comments: 156,
-                shares: 78,
-                createdAt: Date(),
-                s3Key: "mock-live-2.mp4",
-                title: "Patriots vs Chiefs Live",
-                description: "Live football game between Patriots and Chiefs",
-                gameId: "mock-game-2"
-            )
-        ]
-    }
+
 
     private func loadMoreVideos() {
         guard !isLoading else { return }
@@ -451,7 +414,10 @@ struct LiveView: View {
         isLoading = true
         Task {
             do {
-                let newVideos = try await apiService.fetchVideos(page: (liveVideos.count / 10) + 1)
+                // Use LIVE API to load additional items (no server-side pagination yet)
+                let fetched = try await apiService.fetchLiveVideos()
+                let existingIds = Set(self.liveVideos.map { $0.id })
+                let newVideos = fetched.filter { !existingIds.contains($0.id) }
                 await MainActor.run {
                     self.liveVideos.append(contentsOf: newVideos)
                     // Filter by sport and randomize order when "All" is selected
@@ -464,18 +430,8 @@ struct LiveView: View {
                     self.isLoading = false
                 }
             } catch {
-                print("⚠️ Load more videos API not ready yet: \(error)")
-                // For UI testing, add more mock videos when backend is not ready
+                print("[LiveView][ERROR] Load more LIVE videos failed: \(error)")
                 await MainActor.run {
-                    let moreMockVideos = createMockLiveVideos()
-                    self.liveVideos.append(contentsOf: moreMockVideos)
-                    // Filter by sport and randomize order when "All" is selected
-                    if self.selectedSport == .all {
-                        self.filteredVideos.append(contentsOf: moreMockVideos.shuffled())
-                    } else {
-                        let filteredNewVideos = moreMockVideos.filter { $0.sport == self.selectedSport }
-                        self.filteredVideos.append(contentsOf: filteredNewVideos)
-                    }
                     self.isLoading = false
                 }
             }
@@ -485,7 +441,7 @@ struct LiveView: View {
     private func refreshFeedForSport(_ sport: VideoClip.Sport) {
         // Save the selected category
         localStorage.saveLastLiveCategory(sport.rawValue)
-        
+
         // Reset the video lists
         liveVideos = []
         filteredVideos = []
