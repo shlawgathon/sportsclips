@@ -90,6 +90,11 @@ def _pipeline_worker(video_url: str, is_live: bool, q: mp.Queue[str]) -> None:
         ws = QueueWebSocket(q)
 
         async def run() -> None:
+            live_config = {
+                "system_instruction": "You are a sports commentator providing audio commentary. Keep it minimal - use 3-12 words per clip. Be energetic and natural. Examples: 'Strike three!', 'Amazing diving catch!', 'Home run to left field!'",
+                "prompt": None,
+                "fps": 4.0,  # 1 frame every 0.25 seconds
+            }
             await child_pipeline.process_video_url(
                 video_url=video_url,
                 ws=ws,
@@ -97,6 +102,8 @@ def _pipeline_worker(video_url: str, is_live: bool, q: mp.Queue[str]) -> None:
                 create_snippet_message=create_snippet_message,
                 create_complete_message=create_complete_message,
                 create_error_message=create_error_message,
+                enable_live_commentary=True,
+                live_commentary_config=live_config,
             )
 
         asyncio.run(run())
