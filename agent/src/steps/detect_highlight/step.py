@@ -65,7 +65,7 @@ class HighlightDetector:
                     and response.get("name") == "report_highlight_detection"
                 ):
                     args = response.get("args", {})
-                    is_highlight = args.get("is_highlight", False)
+                    is_highlight: bool = bool(args.get("is_highlight", False))
                     confidence = args.get("confidence", "unknown")
                     reason = args.get("reason", "")
 
@@ -106,7 +106,7 @@ def _get_detector() -> HighlightDetector:
     return _detector
 
 
-def _run_async(coro):
+def _run_async(coro: Any) -> Any:
     """
     Run async function in sync context.
 
@@ -236,7 +236,7 @@ def detect_highlight_step(
 
         # Analyze with Gemini
         detector = _get_detector()
-        is_highlight = _run_async(detector.is_highlight(window_video, metadata))
+        is_highlight: bool = _run_async(detector.is_highlight(window_video, metadata))
 
         logger.info(
             f"Detection result: {'HIGHLIGHT' if is_highlight else 'NO HIGHLIGHT'}"
