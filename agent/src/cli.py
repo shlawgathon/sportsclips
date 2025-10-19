@@ -10,12 +10,10 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Any
 
 from dotenv import load_dotenv
 
-from .pipeline import VideoPipeline, create_highlight_pipeline
-from .stream import stream_and_chunk_video
+from .pipeline import create_highlight_pipeline
 
 # Load environment variables from .env file
 load_dotenv()
@@ -28,101 +26,67 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class CLIPipelineRunner:
-    """Runs the video pipeline and saves output files to disk."""
+class MockWebSocket:
+    """Mock WebSocket for CLI usage that saves videos to disk."""
 
-    def __init__(self, output_dir: str = "video_output"):
+    def __init__(self, output_dir: Path):
         """
-        Initialize the CLI pipeline runner.
+        Initialize the mock WebSocket.
 
         Args:
             output_dir: Directory to save output video files
         """
-        self.output_dir = Path(output_dir)
+        self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.saved_count = 0
         logger.info(f"Output directory: {self.output_dir.absolute()}")
 
-    def process_video_url(
-        self,
-        video_url: str,
-        pipeline: VideoPipeline,
-        is_live: bool = False,
-    ) -> None:
+    def send(self, message: str) -> None:
         """
-        Process a video URL through the pipeline and save results.
+        Handle 'send' calls from the pipeline.
 
         Args:
-            video_url: URL of video to process
-            pipeline: VideoPipeline instance to use
-            is_live: Whether the video is a live stream
+            message: JSON message from pipeline
         """
+        import json
+
         try:
-            stream_type = "live stream" if is_live else "video"
-            logger.info(f"Starting pipeline for {stream_type}: {video_url}")
-            logger.info(
-                f"Processing {stream_type} into {pipeline.chunk_duration}-second chunks"
-            )
+            msg = json.loads(message)
 
-            chunk_index = 0
-            saved_count = 0
+            if msg["type"] == "snippet":
+                # Save the highlight to disk
+                import base64
 
-            for chunk_data in stream_and_chunk_video(
-                url=video_url,
-                chunk_duration=pipeline.chunk_duration,
-                format_selector=pipeline.format_selector,
-                additional_options=["--no-part"],
-                is_live=is_live,
-            ):
-                logger.info(f"Processing chunk {chunk_index + 1}")
+                video_data = base64.b64decode(msg["data"]["video_data"])
+                title = msg["data"]["metadata"]["title"]
 
-                # Create metadata
-                metadata: dict[str, Any] = {
-                    "src_video_url": video_url,
-                    "chunk_index": chunk_index,
-                    "duration_seconds": pipeline.chunk_duration,
-                }
-
-                # Apply modulation functions (filtering)
-                chunk_data, metadata = pipeline._apply_modulations(chunk_data, metadata)
-
-                # Skip if chunk was filtered out (empty data)
-                if len(chunk_data) == 0:
-                    logger.info(f"Chunk {chunk_index + 1} was filtered out, skipping")
-                    chunk_index += 1
-                    continue
-
-                # Save the chunk to disk
-                output_filename = (
-                    f"highlight_{saved_count:04d}_chunk{chunk_index:04d}.mp4"
-                )
+                output_filename = f"highlight_{self.saved_count:04d}.mp4"
                 output_path = self.output_dir / output_filename
 
                 with open(output_path, "wb") as f:
-                    f.write(chunk_data)
+                    f.write(video_data)
 
                 logger.info(
-                    f"✓ Saved highlight {saved_count + 1}: {output_filename} "
-                    f"({len(chunk_data)} bytes)"
+                    f"✓ Saved highlight {self.saved_count + 1}: {output_filename} "
+                    f'({len(video_data)} bytes) - "{title}"'
                 )
 
-                saved_count += 1
-                chunk_index += 1
+                self.saved_count += 1
 
-            logger.info(
-                f"\n{'=' * 60}\n"
-                f"Pipeline processing complete!\n"
-                f"Total chunks processed: {chunk_index}\n"
-                f"Highlights saved: {saved_count}\n"
-                f"Output directory: {self.output_dir.absolute()}\n"
-                f"{'=' * 60}"
-            )
+            elif msg["type"] == "snippet_complete":
+                logger.info(
+                    f"\n{'=' * 60}\n"
+                    f"Pipeline processing complete!\n"
+                    f"Highlights saved: {self.saved_count}\n"
+                    f"Output directory: {self.output_dir.absolute()}\n"
+                    f"{'=' * 60}"
+                )
 
-        except KeyboardInterrupt:
-            logger.info("\n\nProcessing interrupted by user")
-            sys.exit(0)
+            elif msg["type"] == "error":
+                logger.error(f"Pipeline error: {msg['message']}")
+
         except Exception as e:
-            logger.error(f"Pipeline error: {e}", exc_info=True)
-            sys.exit(1)
+            logger.error(f"Error processing message: {e}", exc_info=True)
 
 
 def main() -> None:
@@ -138,14 +102,11 @@ Examples:
   # Process a live stream
   python -m src.cli --live https://www.youtube.com/watch?v=VIDEO_ID
 
-  # Use custom chunk duration (default: 3 seconds for highlights)
-  python -m src.cli --chunk-duration 5 VIDEO_URL
+  # Use custom window settings
+  python -m src.cli --base-chunk 3 --window-size 5 VIDEO_URL
 
   # Specify custom output directory
   python -m src.cli --output-dir ./my_highlights VIDEO_URL
-
-  # Disable highlight filtering (save all chunks)
-  python -m src.cli --no-filter VIDEO_URL
         """,
     )
 
@@ -161,10 +122,24 @@ Examples:
     )
 
     parser.add_argument(
-        "--chunk-duration",
+        "--base-chunk",
         type=int,
-        default=3,
-        help="Duration of each video chunk in seconds (default: 3)",
+        default=2,
+        help="Duration of each base chunk in seconds (default: 2)",
+    )
+
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        default=7,
+        help="Number of chunks in sliding window (default: 7)",
+    )
+
+    parser.add_argument(
+        "--slide-step",
+        type=int,
+        default=2,
+        help="Number of chunks to slide when no highlight (default: 2)",
     )
 
     parser.add_argument(
@@ -172,12 +147,6 @@ Examples:
         type=str,
         default="video_output",
         help="Directory to save output video files (default: video_output)",
-    )
-
-    parser.add_argument(
-        "--no-filter",
-        action="store_true",
-        help="Disable highlight filtering (save all chunks)",
     )
 
     parser.add_argument(
@@ -194,22 +163,41 @@ Examples:
         logging.getLogger().setLevel(logging.DEBUG)
 
     # Create pipeline
-    if args.no_filter:
-        logger.info("Creating pipeline WITHOUT highlight filtering")
-        from .pipeline import VideoPipeline
-
-        pipeline = VideoPipeline(chunk_duration=args.chunk_duration)
-    else:
-        logger.info("Creating pipeline WITH highlight filtering")
-        pipeline = create_highlight_pipeline(chunk_duration=args.chunk_duration)
-
-    # Create runner and process video
-    runner = CLIPipelineRunner(output_dir=args.output_dir)
-    runner.process_video_url(
-        video_url=args.video_url,
-        pipeline=pipeline,
-        is_live=args.live,
+    logger.info(
+        f"Creating sliding window pipeline "
+        f"(base_chunk={args.base_chunk}s, window={args.window_size} chunks, "
+        f"slide={args.slide_step} chunks)"
     )
+    pipeline = create_highlight_pipeline(
+        base_chunk_duration=args.base_chunk,
+        window_size=args.window_size,
+        slide_step=args.slide_step,
+    )
+
+    # Create mock WebSocket and process video
+    mock_ws = MockWebSocket(output_dir=Path(args.output_dir))
+
+    from .api import (
+        create_complete_message,
+        create_error_message,
+        create_snippet_message,
+    )
+
+    try:
+        pipeline.process_video_url(
+            video_url=args.video_url,
+            ws=mock_ws,
+            is_live=args.live,
+            create_snippet_message=create_snippet_message,
+            create_complete_message=create_complete_message,
+            create_error_message=create_error_message,
+        )
+    except KeyboardInterrupt:
+        logger.info("\n\nProcessing interrupted by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Pipeline error: {e}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
