@@ -10,7 +10,6 @@ import SwiftUI
 struct LikeHistoryView: View {
     @StateObject private var localStorage = LocalStorageService.shared
     @State private var videos: [VideoClip] = []
-    @State private var items: [LikeHistoryItem] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -22,15 +21,13 @@ struct LikeHistoryView: View {
 
                 Spacer()
 
-                Text("\(localStorage.interactions.filter { $0.liked }.count)")
+                Text("\(videos.count)")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white.opacity(0.7))
             }
             .padding(.horizontal, 20)
 
-            let likedVideos = localStorage.interactions.filter { $0.liked }
-
-            if likedVideos.isEmpty {
+            if videos.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "heart.slash")
                         .font(.system(size: 40, weight: .light))
@@ -48,21 +45,13 @@ struct LikeHistoryView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
-                // Like history grid - scrollable with template content
+                // Like history grid
                 let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 2)
 
                 ScrollView {
                     LazyVGrid(columns: gridColumns, spacing: 12) {
-                        // Show actual liked videos if available
-                        ForEach(Array(likedVideos.prefix(10).enumerated()), id: \.element) { index, interaction in
-                            if let video = videos.first(where: { $0.id == interaction.videoId }) {
-                                LikeHistoryGridItem(video: video, index: index + 1, likedAt: interaction.viewedAt)
-                            }
-                        }
-
-                        // Add template boxes for demonstration (remove when API is ready)
-                        ForEach(0..<8, id: \.self) { index in
-                            LikeHistoryTemplateItem(index: index + 1)
+                        ForEach(Array(videos.enumerated()), id: \.element.id) { index, video in
+                            LikeHistoryGridItem(video: video, index: index + 1, likedAt: Date(timeIntervalSince1970: TimeInterval(video.createdAt / 1000)))
                         }
                     }
                     .padding(.horizontal, 20)
@@ -71,7 +60,7 @@ struct LikeHistoryView: View {
             }
 
             // Recently liked text at bottom
-            if !likedVideos.isEmpty {
+            if !videos.isEmpty {
                 HStack {
                     Spacer()
                     Text("Recently liked videos")
@@ -91,9 +80,40 @@ struct LikeHistoryView: View {
 
     private func loadVideos() {
         Task {
-            let allVideos = try? await APIService.shared.fetchVideos()
-            await MainActor.run {
-                self.videos = allVideos ?? []
+            guard let userId = localStorage.userProfile?.id else {
+                await MainActor.run { self.videos = [] }
+                return
+            }
+            do {
+                let history = try await APIClient.shared.likeHistory(userId: userId)
+                let clips = try await withThrowingTaskGroup(of: VideoClip.self) { group in
+                    for item in history {
+                        group.addTask {
+                            var model = VideoClip.fromClip(item.clip.clip, clipId: item.clip.id)
+                            let url = try await model.fetchVideoURL()
+                            return VideoClip(
+                                id: model.id,
+                                videoURL: url,
+                                caption: model.caption,
+                                sport: model.sport,
+                                likes: model.likes,
+                                comments: model.comments,
+                                shares: model.shares,
+                                createdAt: model.createdAt,
+                                s3Key: model.s3Key,
+                                title: model.title,
+                                description: model.description,
+                                gameId: model.gameId
+                            )
+                        }
+                    }
+                    var results: [VideoClip] = []
+                    for try await vc in group { results.append(vc) }
+                    return results
+                }
+                await MainActor.run { self.videos = clips }
+            } catch {
+                print("Failed to load like history: \(error)")
             }
         }
     }
@@ -197,90 +217,6 @@ struct LikeHistoryGridItem: View {
     }
 }
 
-struct LikeHistoryTemplateItem: View {
-    let index: Int
-
-    var body: some View {
-        Button(action: {
-            print("Navigate to template video: \(index)")
-        }) {
-            VStack(spacing: 8) {
-                // Video thumbnail
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(height: 100)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        VStack {
-                            Image(systemName: "heart.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(.red)
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.8))
-                        }
-                    )
-
-                // Video info
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Image(systemName: "football")
-                            .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.7))
-
-                        Text("Football")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.white.opacity(0.7))
-
-                        Spacer()
-
-                        Text("#\(index)")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.white.opacity(0.5))
-                    }
-
-                    Text("Amazing touchdown play from the game")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-
-                    HStack(spacing: 8) {
-                        HStack(spacing: 2) {
-                            Image(systemName: "heart.fill")
-                                .font(.system(size: 8))
-                                .foregroundColor(.red)
-
-                            Text("1.2K")
-                                .font(.system(size: 8, weight: .medium))
-                                .foregroundColor(.white.opacity(0.7))
-                        }
-
-                        HStack(spacing: 2) {
-                            Image(systemName: "message")
-                                .font(.system(size: 8))
-                                .foregroundColor(.white.opacity(0.7))
-
-                            Text("45")
-                                .font(.system(size: 8, weight: .medium))
-                                .foregroundColor(.white.opacity(0.7))
-                        }
-
-                        Spacer()
-                    }
-                }
-            }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 8)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(.white.opacity(0.1), lineWidth: 1)
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-}
 
 #Preview {
     ZStack {

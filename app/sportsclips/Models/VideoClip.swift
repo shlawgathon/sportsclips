@@ -75,7 +75,7 @@ struct VideoClip: Identifiable, Codable {
             likes: clip.likesCount,
             comments: clip.commentsCount,
             shares: 0, // Not provided by API
-            createdAt: Date(timeIntervalSince1970: TimeInterval(clip.createdAt)),
+            createdAt: Date(timeIntervalSince1970: TimeInterval(clip.createdAt / 1000)),
             s3Key: clip.s3Key,
             title: clip.title,
             description: clip.description,
