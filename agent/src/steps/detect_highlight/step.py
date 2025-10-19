@@ -5,7 +5,6 @@ This module provides a pipeline step that uses the Gemini agent to determine
 whether a video snippet contains interesting or highlight-worthy content.
 """
 
-import asyncio
 import logging
 import os
 import tempfile
@@ -106,30 +105,6 @@ def _get_detector() -> HighlightDetector:
     return _detector
 
 
-def _run_async(coro: Any) -> Any:
-    """
-    Run async function in sync context.
-
-    Args:
-        coro: Coroutine to run
-
-    Returns:
-        Result from coroutine
-    """
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        # If we're already in an async context, create a new event loop
-        # This is a workaround for running async code from sync pipeline
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        # Run in the current event loop
-        return loop.run_until_complete(coro)
-
-
 def _concatenate_chunks(chunks: list[bytes]) -> bytes:
     """
     Concatenate multiple video chunks into a single video file using ffmpeg.
@@ -212,7 +187,7 @@ def _concatenate_chunks(chunks: list[bytes]) -> bytes:
             pass
 
 
-def detect_highlight_step(
+async def detect_highlight_step(
     window_chunks: list[bytes], metadata: dict[str, Any]
 ) -> tuple[bool, dict[str, Any]]:
     """
@@ -236,7 +211,7 @@ def detect_highlight_step(
 
         # Analyze with Gemini
         detector = _get_detector()
-        is_highlight: bool = _run_async(detector.is_highlight(window_video, metadata))
+        is_highlight: bool = await detector.is_highlight(window_video, metadata)
 
         logger.info(
             f"Detection result: {'HIGHLIGHT' if is_highlight else 'NO HIGHLIGHT'}"
@@ -255,7 +230,7 @@ def detect_highlight_step(
         return False, metadata
 
 
-def is_highlight_step(
+async def is_highlight_step(
     video_data: bytes, metadata: dict[str, Any]
 ) -> tuple[bytes, dict[str, Any]]:
     """
@@ -275,8 +250,8 @@ def is_highlight_step(
     """
     detector = _get_detector()
 
-    # Run async function in sync context
-    is_highlight = _run_async(detector.is_highlight(video_data, metadata))
+    # Await async detector directly
+    is_highlight = await detector.is_highlight(video_data, metadata)
 
     # Update metadata
     metadata["is_highlight"] = is_highlight

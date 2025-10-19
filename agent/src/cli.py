@@ -9,6 +9,7 @@ pipeline and save the filtered highlight clips to disk.
 import argparse
 import logging
 import sys
+import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -207,13 +208,15 @@ Examples:
     )
 
     try:
-        pipeline.process_video_url(
-            video_url=args.video_url,
-            ws=mock_ws,
-            is_live=args.live,
-            create_snippet_message=create_snippet_message,
-            create_complete_message=create_complete_message,
-            create_error_message=create_error_message,
+        asyncio.run(
+            pipeline.process_video_url(
+                video_url=args.video_url,
+                ws=mock_ws,
+                is_live=args.live,
+                create_snippet_message=create_snippet_message,
+                create_complete_message=create_complete_message,
+                create_error_message=create_error_message,
+            )
         )
     except KeyboardInterrupt:
         logger.info("\n\nProcessing interrupted by user")

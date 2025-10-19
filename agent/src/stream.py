@@ -440,7 +440,7 @@ def stream_video_chunks(
 def stream_and_chunk_video(
     url: str,
     chunk_duration: int = 15,
-    format_selector: str = "best[ext=mp4]/best",
+    format_selector: str | None = None,
     additional_options: list[str] | None = None,
     is_live: bool = False,
 ) -> Generator[bytes, None, None]:
@@ -451,15 +451,23 @@ def stream_and_chunk_video(
     without waiting for the entire video to download first. This works for both
     live and non-live videos.
 
+    For live streams with --live-from-start:
+    - Downloads from the beginning of the live stream (not just current point)
+    - Downloads all existing stream data as fast as possible, then continues in real-time
+    - LIMITATION: Chunks will contain VIDEO ONLY (no audio) because yt-dlp outputs
+      video and audio sequentially when piping to stdout. Audio stream comes after
+      video completes.
+
     Args:
         url: The video URL
         chunk_duration: Duration of each chunk in seconds (default: 15)
-        format_selector: yt-dlp format selector (default: "best")
+        format_selector: yt-dlp format selector. If None, automatically selects
+                        best video+audio for live, best quality for non-live
         additional_options: Additional yt-dlp command-line options
         is_live: Whether the video is a live stream (default: False)
 
     Yields:
-        bytes: Video chunk data (complete MP4 files)
+        bytes: Video chunk data (MP4 files with video only for live streams)
     """
     # Create unique temp directory with UUID to avoid collisions
     unique_id = uuid.uuid4().hex[:8]
@@ -484,20 +492,31 @@ def stream_and_chunk_video(
             "--no-part",  # Don't use .part files to avoid collisions
         ]
 
-        # Add live-specific flag if needed
+        # Add live-specific flags
         if is_live:
-            ytdlp_cmd.append("--live-from-start")  # Start from beginning of live stream
+            # Download from the beginning of the live stream
+            # NOTE: With --live-from-start, only DASH formats are available (separate video/audio)
+            # This means audio and video will be streamed sequentially, resulting in video-only chunks
+            ytdlp_cmd.append("--live-from-start")
 
         # Add cookies if available
         cookies_path = get_cookies_path()
         if cookies_path:
             ytdlp_cmd.extend(["--cookies", cookies_path])
 
-        # Always add format selector to ensure audio is included
+        # Format selector
         if format_selector:
             ytdlp_cmd.extend(["-f", format_selector])
+        elif is_live:
+            # For live streams with --live-from-start: use best video+audio
+            # NOTE: These will be downloaded as separate streams and output sequentially
+            # The chunks will contain only video (audio comes after video completes)
+            ytdlp_cmd.extend(
+                ["-f", "bestvideo[height<=720]+bestaudio/best[height<=720]"]
+            )
         else:
-            ytdlp_cmd.extend(["-f", "best"])
+            # For non-live videos, use best quality
+            ytdlp_cmd.extend(["-f", "best[ext=mp4]/best"])
 
         if additional_options:
             ytdlp_cmd.extend(additional_options)

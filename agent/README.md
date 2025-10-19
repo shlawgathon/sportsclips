@@ -13,9 +13,9 @@ uv sync
 cp .env.example .env
 ```
 
-### Starting the server
+### Starting the server (ASGI)
 ```bash
-uv run flask --app src.api run --host 0.0.0.0 --port 5000 --debug
+uv run uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### CLI Usage

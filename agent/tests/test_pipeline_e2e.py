@@ -141,14 +141,15 @@ class TestSlidingWindowIntegration:
         mock_ws = Mock()
         test_url = "https://example.com/test.mp4"
 
-        pipeline.process_video_url(
+        import asyncio
+        asyncio.run(pipeline.process_video_url(
             video_url=test_url,
             ws=mock_ws,
             is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
-        )
+        ))
 
         # With 6 chunks, window_size=3, slide_step=1, we should process:
         # Window 0-2, 1-3, 2-4, 3-5 (4 windows)
@@ -202,14 +203,15 @@ class TestSlidingWindowIntegration:
         mock_ws = Mock()
         test_url = "https://example.com/test.mp4"
 
-        pipeline.process_video_url(
+        import asyncio
+        asyncio.run(pipeline.process_video_url(
             video_url=test_url,
             ws=mock_ws,
             is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
-        )
+        ))
 
         # Should process: window 0 (highlight, skip to 3), then 3
         # Windows processed: 0, 3
@@ -249,14 +251,15 @@ class TestSlidingWindowIntegration:
         mock_ws = Mock()
         test_url = "https://example.com/test.mp4"
 
-        pipeline.process_video_url(
+        import asyncio
+        asyncio.run(pipeline.process_video_url(
             video_url=test_url,
             ws=mock_ws,
             is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
-        )
+        ))
 
         # Should have processed 1 window (0-2)
         assert len(captured_metadata) == 1
@@ -282,14 +285,15 @@ class TestPipelineErrorHandling:
             "https://this-domain-definitely-does-not-exist-12345.com/video.mp4"
         )
 
-        pipeline.process_video_url(
+        import asyncio
+        asyncio.run(pipeline.process_video_url(
             video_url=invalid_url,
             ws=mock_ws,
             is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
-        )
+        ))
 
         # Should send error message
         assert mock_ws.send.called
@@ -307,14 +311,15 @@ class TestPipelineErrorHandling:
         mock_ws = Mock()
         test_url = "https://example.com/test.mp4"
 
-        pipeline.process_video_url(
+        import asyncio
+        asyncio.run(pipeline.process_video_url(
             video_url=test_url,
             ws=mock_ws,
             is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
-        )
+        ))
 
         # Error message should be sent
         last_msg = json.loads(mock_ws.send.call_args_list[-1][0][0])
@@ -341,14 +346,15 @@ class TestPipelineBasicFunctionality:
         pipeline.set_detect_step(count_chunks)
 
         mock_ws = Mock()
-        pipeline.process_video_url(
+        import asyncio
+        asyncio.run(pipeline.process_video_url(
             video_url="https://example.com/test.mp4",
             ws=mock_ws,
             is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
-        )
+        ))
 
         # All detect calls should receive window_size chunks
         assert all(count == pipeline.window_size for count in chunk_count_in_detect)
@@ -371,14 +377,15 @@ class TestPipelineBasicFunctionality:
         pipeline.set_detect_step(track_windows)
 
         mock_ws = Mock()
-        pipeline.process_video_url(
+        import asyncio
+        asyncio.run(pipeline.process_video_url(
             video_url="https://example.com/test.mp4",
             ws=mock_ws,
             is_live=False,
             create_snippet_message=create_snippet_message,
             create_complete_message=create_complete_message,
             create_error_message=create_error_message,
-        )
+        ))
 
         # With slide_step=2, should slide: 0, 2, 4, 6
         assert window_starts[0] == 0
