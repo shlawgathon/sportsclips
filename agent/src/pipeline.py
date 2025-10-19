@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .stream import stream_and_chunk_video
+from .live import process_chunks_with_live_api
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +461,79 @@ class SlidingWindowPipeline:
         except Exception as e:
             logger.error(f"Pipeline error: {e}", exc_info=True)
             await asyncio.to_thread(ws.send, create_error_message(str(e), video_url))
+
+    async def process_video_url_with_live_api(
+        self,
+        video_url: str,
+        ws: Any,
+        is_live: bool,
+        system_instruction: str = "You are a helpful sports commentator providing live audio commentary.",
+        prompt: str = "Provide engaging sports commentary for this video.",
+        fps: float = 1.0,
+        create_error_message: Callable[[str, str | None], str] | None = None,
+    ) -> None:
+        """
+        Process a video URL using Gemini Live API for real-time audio commentary.
+
+        This method:
+        1. Streams and chunks the video (same as process_video_url)
+        2. Collects chunks in memory
+        3. Sends them to Gemini Live API via live.py
+        4. Receives audio commentary
+        5. Stitches audio with video
+        6. Sends fragmented MP4 through websocket
+
+        Args:
+            video_url: URL of video to process
+            ws: WebSocket connection object
+            is_live: Whether the video is a live stream
+            system_instruction: System instruction for Gemini model
+            prompt: User prompt for commentary generation
+            fps: Frames per second to extract from video chunks (default: 1.0)
+            create_error_message: Optional function to create error message JSON
+        """
+        try:
+            stream_type = "live stream" if is_live else "video"
+            logger.info(
+                f"Starting Live API processing for {stream_type}: {video_url}"
+            )
+
+            # Collect all chunks from the video
+            chunks: list[bytes] = []
+            iterator = stream_and_chunk_video(
+                url=video_url,
+                chunk_duration=self.base_chunk_duration,
+                format_selector=self.format_selector,
+                additional_options=["--no-part"],
+                is_live=is_live,
+            )
+
+            logger.info("Collecting video chunks...")
+            while True:
+                try:
+                    chunk_data = await asyncio.to_thread(next, iterator)
+                    chunks.append(chunk_data)
+                    logger.debug(f"Collected chunk {len(chunks)}")
+                except StopIteration:
+                    break
+
+            logger.info(f"Collected {len(chunks)} chunks, processing with Live API...")
+
+            # Process chunks with Live API
+            await process_chunks_with_live_api(
+                chunks=chunks,
+                websocket=ws,
+                system_instruction=system_instruction,
+                prompt=prompt,
+                fps=fps,
+            )
+
+            logger.info("Live API processing complete")
+
+        except Exception as e:
+            logger.error(f"Live API pipeline error: {e}", exc_info=True)
+            if create_error_message:
+                await asyncio.to_thread(ws.send, create_error_message(str(e), video_url))
 
 
 def create_highlight_pipeline(
