@@ -445,16 +445,11 @@ def stream_and_chunk_video(
     is_live: bool = False,
 ) -> Generator[bytes, None, None]:
     """
-    Stream and chunk a video, handling live vs non-live streams based on is_live parameter.
+    Stream and chunk a video in real-time using yt-dlp piped to ffmpeg.
 
-    For non-live streams:
-        - Downloads the entire video
-        - Chunks it all at once
-        - Yields chunks quickly
-
-    For live streams:
-        - Chunks all existing content first
-        - Continues chunking new content in real-time as stream progresses
+    This function streams video content and yields chunks as they become available,
+    without waiting for the entire video to download first. This works for both
+    live and non-live videos.
 
     Args:
         url: The video URL
@@ -466,89 +461,194 @@ def stream_and_chunk_video(
     Yields:
         bytes: Video chunk data (complete MP4 files)
     """
-    # Use the is_live parameter to determine the processing method
-    if is_live:
-        # Use real-time chunking for live streams
-        yield from stream_and_chunk_live(
-            url=url,
-            chunk_duration=chunk_duration,
-            format_selector=format_selector,
-            additional_options=additional_options,
+    # Create unique temp directory with UUID to avoid collisions
+    unique_id = uuid.uuid4().hex[:8]
+    temp_dir = tempfile.mkdtemp(prefix=f"video_stream_{unique_id}_")
+
+    try:
+        temp_path = Path(temp_dir)
+
+        # Create isolated cache directory for this yt-dlp instance
+        cache_dir = temp_path / "yt-dlp-cache"
+        cache_dir.mkdir()
+
+        # Build yt-dlp command to stream video
+        ytdlp_cmd = [
+            "yt-dlp",
+            "-o",
+            "-",  # Output to stdout
+            "--quiet",
+            "--no-warnings",
+            "--cache-dir",
+            str(cache_dir),  # Use isolated cache directory
+            "--no-part",  # Don't use .part files to avoid collisions
+        ]
+
+        # Add live-specific flag if needed
+        if is_live:
+            ytdlp_cmd.append("--live-from-start")  # Start from beginning of live stream
+
+        # Add cookies if available
+        cookies_path = get_cookies_path()
+        if cookies_path:
+            ytdlp_cmd.extend(["--cookies", cookies_path])
+
+        # Always add format selector to ensure audio is included
+        if format_selector:
+            ytdlp_cmd.extend(["-f", format_selector])
+        else:
+            ytdlp_cmd.extend(["-f", "best"])
+
+        if additional_options:
+            ytdlp_cmd.extend(additional_options)
+
+        ytdlp_cmd.append(url)
+
+        # Build ffmpeg command to chunk the stream in real-time
+        # Use relative paths so ffmpeg writes all files within temp_dir
+        output_pattern = "chunk_%05d.mp4"
+        segments_file = "segments.txt"
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-i",
+            "pipe:0",  # Read from stdin
+            "-c:v",
+            "copy",  # Copy video without re-encoding
+            "-c:a",
+            "copy",  # Copy audio without re-encoding
+            "-map",
+            "0:v?",  # Map video stream if present
+            "-map",
+            "0:a?",  # Map audio stream if present
+            "-f",
+            "segment",
+            "-segment_time",
+            str(chunk_duration),
+            "-segment_format",
+            "mp4",
+            "-reset_timestamps",
+            "1",
+            "-strftime",
+            "0",
+            "-segment_list",
+            segments_file,
+            "-segment_list_flags",
+            "live",
+            output_pattern,
+        ]
+
+        # Start yt-dlp process
+        ytdlp_process = subprocess.Popen(
+            ytdlp_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=temp_dir,
         )
-    else:
-        # For non-live streams, download and chunk quickly
-        # Create unique temp directory with UUID to avoid collisions
-        unique_id = uuid.uuid4().hex[:8]
-        temp_dir = tempfile.mkdtemp(prefix=f"video_stream_{unique_id}_")
 
-        try:
-            temp_path = Path(temp_dir)
-            video_file = temp_path / "video.mp4"
-            chunk_dir = temp_path / "chunks"
-            chunk_dir.mkdir()
+        # Start ffmpeg process, reading from yt-dlp's output
+        ffmpeg_process = subprocess.Popen(
+            ffmpeg_cmd,
+            stdin=ytdlp_process.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=temp_dir,
+        )
 
-            # Download the complete video
-            with open(video_file, "wb") as f:
-                for chunk in stream_video_chunks(
-                    url=url,
-                    format_selector=format_selector,
-                    additional_options=additional_options,
-                ):
-                    f.write(chunk)
+        # Close yt-dlp stdout in parent to allow proper pipe behavior
+        if ytdlp_process.stdout:
+            ytdlp_process.stdout.close()
 
-            # Split into chunks using ffmpeg
-            # Use relative paths so ffmpeg writes all files within chunk_dir
-            output_pattern = "chunk_%05d.mp4"
-            cmd = [
-                "ffmpeg",
-                "-i",
-                str(video_file.absolute()),  # Use absolute path for input file
-                "-c:v",
-                "copy",  # Copy video without re-encoding for speed
-                "-c:a",
-                "copy",  # Copy audio without re-encoding for speed
-                "-map",
-                "0:v?",  # Map video stream if present
-                "-map",
-                "0:a?",  # Map audio stream if present
-                "-f",
-                "segment",
-                "-segment_time",
-                str(chunk_duration),
-                "-reset_timestamps",
-                "1",
-                output_pattern,
-            ]
+        # Track which chunks we've already yielded
+        yielded_chunks = set()
 
-            # Use chunk_dir as cwd to prevent -Frag files from conflicting in concurrent operations
-            subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                cwd=str(chunk_dir),
-            )
+        # Keep monitoring for new chunks until the stream ends
+        while True:
+            # Check if processes are still running
+            ytdlp_status = ytdlp_process.poll()
+            ffmpeg_status = ffmpeg_process.poll()
 
-            # Yield all chunks
-            chunk_files = sorted(chunk_dir.glob("chunk_*.mp4"))
+            # Find all chunk files
+            chunk_files = sorted(temp_path.glob("chunk_*.mp4"))
+
+            # Yield any new chunks
             for chunk_file in chunk_files:
-                with open(chunk_file, "rb") as f:
-                    yield f.read()
+                if chunk_file not in yielded_chunks:
+                    # Wait a moment to ensure the chunk is complete
+                    import time
 
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to chunk video: {e.stderr}")
-        except FileNotFoundError:
-            raise RuntimeError(
-                "ffmpeg is not installed. Install it with: sudo apt-get install ffmpeg"
+                    time.sleep(0.5)
+
+                    # Check if this is likely the last/current chunk being written
+                    # by seeing if there's a newer chunk
+                    newer_chunks = [f for f in chunk_files if f > chunk_file]
+                    if newer_chunks or ffmpeg_status is not None:
+                        # This chunk is complete, read and yield it
+                        try:
+                            with open(chunk_file, "rb") as f:
+                                chunk_data = f.read()
+
+                            if chunk_data:
+                                yielded_chunks.add(chunk_file)
+                                yield chunk_data
+                        except Exception:
+                            # If we can't read the chunk, skip it
+                            pass
+
+            # If both processes have ended, yield any remaining chunks and exit
+            if ytdlp_status is not None and ffmpeg_status is not None:
+                # Give ffmpeg a moment to finish writing the last chunk
+                import time
+
+                time.sleep(1)
+
+                # Yield any final chunks
+                final_chunks = sorted(temp_path.glob("chunk_*.mp4"))
+                for chunk_file in final_chunks:
+                    if chunk_file not in yielded_chunks:
+                        try:
+                            with open(chunk_file, "rb") as f:
+                                chunk_data = f.read()
+                            if chunk_data:
+                                yield chunk_data
+                        except Exception:
+                            pass
+
+                break
+
+            # Sleep briefly before checking again
+            import time
+
+            time.sleep(2)
+
+        # Check for errors
+        if ytdlp_status != 0:
+            stderr = (
+                ytdlp_process.stderr.read().decode("utf-8")
+                if ytdlp_process.stderr
+                else ""
             )
-        finally:
-            # Cleanup
-            try:
-                import shutil
+            raise RuntimeError(
+                f"yt-dlp failed with return code {ytdlp_status}: {stderr}"
+            )
 
-                shutil.rmtree(temp_dir)
-            except Exception:
-                pass
+        if ffmpeg_status != 0:
+            stderr = (
+                ffmpeg_process.stderr.read().decode("utf-8")
+                if ffmpeg_process.stderr
+                else ""
+            )
+            raise RuntimeError(
+                f"ffmpeg failed with return code {ffmpeg_status}: {stderr}"
+            )
+
+    finally:
+        # Cleanup
+        try:
+            import shutil
+
+            shutil.rmtree(temp_dir)
+        except Exception:
+            pass
 
 
 def stream_video_to_file(
