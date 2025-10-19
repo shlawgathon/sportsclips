@@ -503,6 +503,10 @@ class GeminiAgent:
                     and candidate.content.parts
                 ):
                     for part in candidate.content.parts:
+                        # Skip thinking parts (thought=True) - only process actual content
+                        if hasattr(part, "thought") and part.thought:
+                            continue
+
                         if hasattr(part, "function_call") and part.function_call:
                             # Return function call data
                             function_call = part.function_call
