@@ -35,6 +35,7 @@ struct VideoFeedView: View {
     @State private var timeUpdateTimer: Timer?
     @State private var doubleTapInProgress: [String: Bool] = [:] // Track if double tap is in progress
     @State private var controlShowTimes: [String: Date] = [:] // Track when controls were shown for each video
+    @State private var gameNameCache: [String: String] = [:] // Cache gameId -> gameName to avoid refetching
 
     var body: some View {
         ZStack {
@@ -322,6 +323,8 @@ struct VideoFeedView: View {
 
         print("🎬 Video appeared: \(video.id) at index \(index)")
         playerManager.playVideo(for: video.videoURL, videoId: video.id)
+        // Preload next 5 videos to disk
+        playerManager.updatePreloadQueue(currentIndex: index, clips: filteredVideos, count: 5)
         localStorage.recordView(videoId: video.id)
         Task { await apiService.markViewed(clipId: video.id) }
 
@@ -354,6 +357,8 @@ struct VideoFeedView: View {
             let currentVideo = filteredVideos[newIndex]
             print("🎬 Scroll detected - switching to video index: \(newIndex), ID: \(currentVideo.id)")
             playerManager.playVideo(for: currentVideo.videoURL, videoId: currentVideo.id)
+            // Preload next 5 videos to disk
+            playerManager.updatePreloadQueue(currentIndex: newIndex, clips: filteredVideos, count: 5)
             localStorage.recordView(videoId: currentVideo.id)
             pausedVideos[currentVideo.id] = false
         }
@@ -370,13 +375,13 @@ struct VideoFeedView: View {
                 print("No gameId available")
                 return
             }
-            
+
             do {
                 let game = try await APIClient.shared.getGame(gameId: gameId)
-                
+
                 // Update UI on main thread
                 await MainActor.run {
-                    self.selectedGameName = game.name ?? ""
+                    self.selectedGameName = game.name
                     self.selectedGameId = gameId
                     if !self.selectedGameId.isEmpty {
                         self.showingGameClips = true
@@ -445,6 +450,32 @@ struct VideoFeedView: View {
         print("🎬 VideoFeedView disappeared - cleaned up resources")
     }
 
+    // Update selected game info when current video changes
+    private func updateSelectedGame(for video: VideoClip) {
+        guard let gid = video.gameId, !gid.isEmpty else {
+            self.selectedGameId = ""
+            self.selectedGameName = ""
+            return
+        }
+        if let cached = gameNameCache[gid] {
+            self.selectedGameId = gid
+            self.selectedGameName = cached
+            return
+        }
+        Task {
+            do {
+                let game = try await APIClient.shared.getGame(gameId: gid)
+                await MainActor.run {
+                    self.gameNameCache[gid] = game.name
+                    self.selectedGameId = gid
+                    self.selectedGameName = game.name
+                }
+            } catch {
+                print("Failed to resolve game name for \(gid): \(error)")
+            }
+        }
+    }
+
     // MARK: - Data Loading Methods
     private func loadVideos() {
         guard !isLoading else { return }
@@ -485,6 +516,8 @@ struct VideoFeedView: View {
 
         print("🎬 Auto-playing first video after load: \(filteredVideos[0].id)")
         playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
+        // Preload next 5 videos to disk starting from index 0
+        playerManager.updatePreloadQueue(currentIndex: 0, clips: filteredVideos, count: 5)
         localStorage.recordView(videoId: filteredVideos[0].id)
         Task { await apiService.markViewed(clipId: filteredVideos[0].id) }
         pausedVideos[filteredVideos[0].id] = false

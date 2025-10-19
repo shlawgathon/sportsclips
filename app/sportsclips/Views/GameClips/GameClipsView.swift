@@ -305,6 +305,8 @@ struct GameClipsView: View {
     private func handleVideoAppear(video: VideoClip, index: Int) {
         currentIndex = index
         playerManager.playVideo(for: video.videoURL, videoId: video.id)
+        // Preload next 5 videos to disk
+        playerManager.updatePreloadQueue(currentIndex: index, clips: videos, count: 5)
         localStorage.recordView(videoId: video.id)
 
         if let interaction = localStorage.getInteraction(for: video.id) {

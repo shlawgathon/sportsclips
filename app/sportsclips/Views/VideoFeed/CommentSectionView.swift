@@ -85,7 +85,7 @@ struct CommentSectionView: View {
                     .padding(.top, 50)
                 } else {
                     ForEach(comments, id: \.id) { commentItem in
-                        CommentRowView(comment: commentItem.comment, postedByUsername: commentItem.postedByUsername)
+                        CommentRowView(item: commentItem)
                     }
                 }
             }
@@ -176,8 +176,7 @@ struct CommentSectionView: View {
 }
 
 struct CommentRowView: View {
-    let comment: Comment
-    let postedByUsername: String
+    let item: CommentItem
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {

@@ -24,6 +24,8 @@ struct Clip: Codable {
 struct CommentItem: Codable {
     let id: String
     let postedByUsername: String
+    let postedByDisplayName: String?
+    let postedByProfilePictureBase64: String?
     let comment: Comment
 }
 

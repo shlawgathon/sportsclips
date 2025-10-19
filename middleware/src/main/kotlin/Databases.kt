@@ -274,7 +274,7 @@ fun Application.configureDatabases()
     @Serializable
     data class ClipListItem(val id: String, val clip: Clip)
     @Serializable
-    data class CommentItem(val id: String, val postedByUsername: String, val comment: Comment)
+    data class CommentItem(val id: String, val postedByUsername: String, val postedByDisplayName: String? = null, val postedByProfilePictureBase64: String? = null, val comment: Comment)
     @Serializable
     data class RecommendationItem(val id: String, val score: Double, val clip: Clip)
     @Serializable
@@ -448,9 +448,15 @@ fun Application.configureDatabases()
             get("/clips/{id}/comments") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val comments = commentService.listByClip(id).map { (cid, c) ->
+                    val user = userService.getById(c.userId)?.second
+                    val username = user?.username ?: "Anonymous"
+                    val displayName = user?.displayName
+                    val profilePic = user?.profilePictureBase64
                     CommentItem(
                         id = cid,
-                        userService.getById(c.userId)?.second?.displayName ?: "???",
+                        postedByUsername = username,
+                        postedByDisplayName = displayName,
+                        postedByProfilePictureBase64 = profilePic,
                         comment = c
                     )
                 }
