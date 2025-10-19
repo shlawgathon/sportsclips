@@ -4,6 +4,7 @@ import com.ucasoft.ktor.simpleCache.SimpleCache
 import com.ucasoft.ktor.simpleMemoryCache.memoryCache
 import io.ktor.server.application.*
 import io.ktor.server.routing.*
+import io.ktor.server.response.*
 import kotlin.time.Duration.Companion.seconds
 import gg.growly.liveVideoRoutes
 
@@ -28,6 +29,14 @@ fun Application.configureHTTP()
     install(io.ktor.server.websocket.WebSockets)
 
     routing {
+        // Health checks
+        get("/.ping") {
+            call.respondText("pong")
+        }
+        get("/ping") {
+            call.respondText("pong")
+        }
+
         liveRoutes()
         liveVideoRoutes()
         liveCommentsSocketRoutes()

@@ -74,7 +74,13 @@ final class LiveVideoService: NSObject {
         Task { [weak self] in
             while let t = self?.task {
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
-                do { try await t.send(.ping(Data())) ; self?.log.debug("[conn:\(self?.connectionId ?? "-")] -> ping") } catch { self?.log.error("[conn:\(self?.connectionId ?? "-")] ping failed: \(error.localizedDescription)") }
+                t.sendPing { error in
+                    if let error = error {
+                        self?.log.error("[conn:\(self?.connectionId ?? "-")] ping failed: \(error.localizedDescription)")
+                    } else {
+                        self?.log.debug("[conn:\(self?.connectionId ?? "-")] -> ping")
+                    }
+                }
             }
         }
         listen(onChunk: onChunk, onSnippet: onSnippet, onError: onError)
