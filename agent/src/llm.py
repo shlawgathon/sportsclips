@@ -362,6 +362,7 @@ class GeminiAgent:
         self,
         inputs: list[AgentInput],
         output_modality: ModalityType = ModalityType.TEXT,
+        tools: Optional[list[Any]] = None,
         **generation_config: Any,
     ) -> AgentOutput:
         """
@@ -370,10 +371,11 @@ class GeminiAgent:
         Args:
             inputs: List of processed inputs
             output_modality: Desired output modality
+            tools: Optional list of tool/function declarations for function calling
             **generation_config: Additional generation configuration
 
         Returns:
-            AgentOutput: Generated output
+            AgentOutput: Generated output (may contain function call)
 
         Raises:
             ValueError: If model is not initialized or input modality is unsupported
@@ -410,13 +412,47 @@ class GeminiAgent:
                     # For now, just pass the data as-is
                     content_parts.append(agent_input.data)
 
-            # Generate content
-            response = await self._model.generate_content_async(
-                content_parts,
-                generation_config=genai.types.GenerationConfig(**generation_config)
+            # Build generation config
+            gen_config = (
+                genai.types.GenerationConfig(**generation_config)
                 if generation_config
-                else None,
+                else None
             )
+
+            # Generate content with optional tools
+            if tools:
+                response = await self._model.generate_content_async(
+                    content_parts,
+                    generation_config=gen_config,
+                    tools=tools,
+                )
+            else:
+                response = await self._model.generate_content_async(
+                    content_parts,
+                    generation_config=gen_config,
+                )
+
+            # Check if response contains function calls
+            if hasattr(response, "candidates") and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate.content, "parts"):
+                    for part in candidate.content.parts:
+                        if hasattr(part, "function_call") and part.function_call:
+                            # Return function call data
+                            function_call = part.function_call
+                            return AgentOutput(
+                                modality=output_modality,
+                                data={
+                                    "name": function_call.name,
+                                    "args": dict(function_call.args),
+                                },
+                                metadata={
+                                    "inputs": len(inputs),
+                                    "config": generation_config,
+                                    "model": self.model_name,
+                                    "type": "function_call",
+                                },
+                            )
 
             # Extract text from response
             response_text = response.text
@@ -428,6 +464,7 @@ class GeminiAgent:
                     "inputs": len(inputs),
                     "config": generation_config,
                     "model": self.model_name,
+                    "type": "text",
                 },
             )
         except Exception as e:
@@ -463,24 +500,37 @@ class GeminiAgent:
         return result
 
     async def generate_from_video(
-        self, video_input: Union[bytes, Path, str], prompt: str
-    ) -> str:
+        self,
+        video_input: Union[bytes, Path, str],
+        prompt: str,
+        tools: Optional[list[Any]] = None,
+    ) -> Union[str, dict[str, Any]]:
         """
         Convenience method for video understanding.
 
         Args:
             video_input: Video data (bytes, path, or URL)
             prompt: Question or instruction about the video
+            tools: Optional list of tool/function declarations for function calling
 
         Returns:
-            str: Generated text response
+            str or dict: Generated text response, or function call data if tools provided
         """
         inputs = [
             self.process_input(video_input, ModalityType.VIDEO),
             self.process_input(prompt, ModalityType.TEXT),
         ]
 
-        output = await self.generate(inputs, output_modality=ModalityType.TEXT)
+        output = await self.generate(
+            inputs, output_modality=ModalityType.TEXT, tools=tools
+        )
+
+        # If it's a function call, return the function call data directly
+        if output.metadata and output.metadata.get("type") == "function_call":
+            assert isinstance(output.data, dict)
+            return output.data
+
+        # Otherwise, return text
         result = self.process_output(output)
         assert isinstance(result, str)
         return result

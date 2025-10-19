@@ -8,7 +8,6 @@ which portions of a video window contain the actual highlight action.
 import asyncio
 import logging
 import os
-import re
 import subprocess
 import tempfile
 import uuid
@@ -16,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ...llm import GeminiAgent
-from .prompt import TRIM_HIGHLIGHT_PROMPT
+from .prompt import TRIM_HIGHLIGHT_PROMPT, TRIM_HIGHLIGHT_TOOL
 
 logger = logging.getLogger(__name__)
 
@@ -99,41 +98,6 @@ def _concatenate_chunks(chunks: list[bytes]) -> bytes:
             pass
 
 
-async def _analyze_video_with_gemini(
-    video_data: bytes, prompt: str, agent: GeminiAgent
-) -> str:
-    """
-    Analyze video using Gemini LLM.
-
-    Args:
-        video_data: Raw video bytes
-        prompt: Analysis prompt
-        agent: GeminiAgent instance
-
-    Returns:
-        LLM response text
-    """
-    # Save video data to a temporary file for Gemini to process
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
-        temp_file.write(video_data)
-        temp_path = temp_file.name
-
-    try:
-        # Use the agent to analyze the video
-        response = await agent.generate_from_video(
-            video_input=temp_path,
-            prompt=prompt,
-        )
-        return response.strip()
-
-    finally:
-        # Clean up temp file
-        try:
-            os.unlink(temp_path)
-        except Exception as e:
-            logger.warning(f"Failed to delete temp file {temp_path}: {e}")
-
-
 def _run_async(coro):
     """
     Run async function in sync context.
@@ -188,65 +152,75 @@ class HighlightTrimmer:
             # Concatenate all chunks for analysis
             full_window_video = _concatenate_chunks(window_chunks)
 
-            # Ask Gemini which chunks to keep
-            response = await _analyze_video_with_gemini(
-                full_window_video, self.prompt, self.agent
-            )
+            # Save video to temp file for Gemini
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
+                temp_file.write(full_window_video)
+                temp_path = temp_file.name
 
-            logger.info(f"Trim response: {response}")
-
-            # Parse the response (expected format: "START-END" like "2-5")
             try:
-                response_clean = response.strip()
-                if "-" in response_clean:
-                    # Extract just the number range, handling potential extra text
-                    match = re.search(r"(\d+)-(\d+)", response_clean)
-                    if match:
-                        start_chunk = int(match.group(1))
-                        end_chunk = int(match.group(2))
+                # Ask Gemini which chunks to keep using function calling
+                response = await self.agent.generate_from_video(
+                    video_input=temp_path,
+                    prompt=self.prompt,
+                    tools=[TRIM_HIGHLIGHT_TOOL],
+                )
 
-                        # Validate range
-                        start_chunk = max(1, min(start_chunk, 7))
-                        end_chunk = max(1, min(end_chunk, 7))
+                logger.info(f"Trim response: {response}")
 
-                        if start_chunk > end_chunk:
-                            start_chunk, end_chunk = end_chunk, start_chunk
-                    else:
-                        raise ValueError("Could not parse chunk range")
+                # Extract function call response
+                if (
+                    isinstance(response, dict)
+                    and response.get("name") == "report_trim_segments"
+                ):
+                    args = response.get("args", {})
+                    start_chunk = int(args.get("start_segment", 1))
+                    end_chunk = int(args.get("end_segment", 7))
+                    reasoning = args.get("reasoning", "")
+
+                    # Validate and fix range if needed
+                    start_chunk = max(1, min(start_chunk, 7))
+                    end_chunk = max(1, min(end_chunk, 7))
+
+                    if start_chunk > end_chunk:
+                        start_chunk, end_chunk = end_chunk, start_chunk
+
+                    # Convert to 0-indexed
+                    start_idx = start_chunk - 1
+                    end_idx = (
+                        end_chunk  # end_chunk is inclusive, so we don't subtract 1
+                    )
+
+                    logger.info(
+                        f"Trimming to chunks {start_chunk}-{end_chunk} "
+                        f"(indices {start_idx}:{end_idx}). Reasoning: {reasoning}"
+                    )
+
+                    # Extract and concatenate the selected chunks
+                    selected_chunks = window_chunks[start_idx:end_idx]
+                    trimmed_video = _concatenate_chunks(selected_chunks)
+
+                    metadata["trim_method"] = "gemini_function_calling"
+                    metadata["trimmed_chunk_start"] = start_chunk
+                    metadata["trimmed_chunk_end"] = end_chunk
+                    metadata["trimmed_chunk_count"] = len(selected_chunks)
+                    metadata["trim_reasoning"] = reasoning
+
+                    return trimmed_video, metadata
                 else:
-                    raise ValueError("Response does not contain a range")
+                    # Fallback: use all chunks
+                    logger.warning(
+                        f"Unexpected response format: {response}. Using all chunks."
+                    )
+                    metadata["trim_method"] = "function_call_fallback"
+                    metadata["trimmed_chunk_count"] = len(window_chunks)
+                    return full_window_video, metadata
 
-                # Convert to 0-indexed
-                start_idx = start_chunk - 1
-                end_idx = end_chunk  # end_chunk is inclusive, so we don't subtract 1
-
-                logger.info(
-                    f"Trimming to chunks {start_chunk}-{end_chunk} "
-                    f"(indices {start_idx}:{end_idx})"
-                )
-
-                # Extract and concatenate the selected chunks
-                selected_chunks = window_chunks[start_idx:end_idx]
-                trimmed_video = _concatenate_chunks(selected_chunks)
-
-                metadata["trim_method"] = "gemini_llm"
-                metadata["trim_response"] = response_clean
-                metadata["trimmed_chunk_start"] = start_chunk
-                metadata["trimmed_chunk_end"] = end_chunk
-                metadata["trimmed_chunk_count"] = len(selected_chunks)
-
-                return trimmed_video, metadata
-
-            except (ValueError, IndexError) as e:
-                logger.warning(
-                    f"Failed to parse trim response '{response}': {e}. Using all chunks."
-                )
-                # Fallback: use all chunks
-                metadata["trim_method"] = "gemini_llm_fallback"
-                metadata["trim_response"] = response
-                metadata["trim_error"] = str(e)
-                metadata["trimmed_chunk_count"] = len(window_chunks)
-                return full_window_video, metadata
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(temp_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete temp file {temp_path}: {e}")
 
         except Exception as e:
             logger.error(f"Error in trim_highlight: {e}", exc_info=True)

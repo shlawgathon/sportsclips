@@ -12,7 +12,7 @@ import tempfile
 from typing import Any
 
 from ...llm import GeminiAgent
-from .prompt import HIGHLIGHT_DETECTION_PROMPT
+from .prompt import HIGHLIGHT_DETECTION_PROMPT, HIGHLIGHT_DETECTION_TOOL
 
 logger = logging.getLogger(__name__)
 
@@ -56,18 +56,30 @@ class HighlightDetector:
                 response = await self.agent.generate_from_video(
                     video_input=temp_path,
                     prompt=self.prompt,
+                    tools=[HIGHLIGHT_DETECTION_TOOL],
                 )
 
-                # Parse the response
-                response_clean = response.strip().upper()
-                is_highlight = "YES" in response_clean
+                # Extract function call response
+                if (
+                    isinstance(response, dict)
+                    and response.get("name") == "report_highlight_detection"
+                ):
+                    args = response.get("args", {})
+                    is_highlight = args.get("is_highlight", False)
+                    confidence = args.get("confidence", "unknown")
+                    reason = args.get("reason", "")
 
-                logger.info(
-                    f"Chunk {metadata.get('chunk_index', 'unknown')}: "
-                    f"{'HIGHLIGHT' if is_highlight else 'NOT HIGHLIGHT'} (response: {response_clean})"
-                )
+                    logger.info(
+                        f"Chunk {metadata.get('chunk_index', 'unknown')}: "
+                        f"{'HIGHLIGHT' if is_highlight else 'NOT HIGHLIGHT'} "
+                        f"(confidence: {confidence}, reason: {reason})"
+                    )
 
-                return is_highlight
+                    return is_highlight
+                else:
+                    # Fallback if function calling didn't work
+                    logger.warning(f"Unexpected response format: {response}")
+                    return True
 
             finally:
                 # Clean up temp file

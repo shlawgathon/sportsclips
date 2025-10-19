@@ -12,44 +12,9 @@ import tempfile
 from typing import Any
 
 from ...llm import GeminiAgent
-from .prompt import CAPTION_HIGHLIGHT_PROMPT
+from .prompt import CAPTION_HIGHLIGHT_PROMPT, CAPTION_HIGHLIGHT_TOOL
 
 logger = logging.getLogger(__name__)
-
-
-async def _analyze_video_with_gemini(
-    video_data: bytes, prompt: str, agent: GeminiAgent
-) -> str:
-    """
-    Analyze video using Gemini LLM.
-
-    Args:
-        video_data: Raw video bytes
-        prompt: Analysis prompt
-        agent: GeminiAgent instance
-
-    Returns:
-        LLM response text
-    """
-    # Save video data to a temporary file for Gemini to process
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
-        temp_file.write(video_data)
-        temp_path = temp_file.name
-
-    try:
-        # Use the agent to analyze the video
-        response = await agent.generate_from_video(
-            video_input=temp_path,
-            prompt=prompt,
-        )
-        return response.strip()
-
-    finally:
-        # Clean up temp file
-        try:
-            os.unlink(temp_path)
-        except Exception as e:
-            logger.warning(f"Failed to delete temp file {temp_path}: {e}")
 
 
 def _run_async(coro):
@@ -103,45 +68,78 @@ class HighlightCaptioner:
             Tuple of (title, description, updated_metadata)
         """
         try:
-            # Generate captions with Gemini
-            response = await _analyze_video_with_gemini(
-                video_data, self.prompt, self.agent
-            )
+            # Save video to temp file for Gemini
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
+                temp_file.write(video_data)
+                temp_path = temp_file.name
 
-            logger.info(f"Caption response: {response}")
-
-            # Parse the response
-            title = ""
-            description = ""
-
-            for line in response.split("\n"):
-                line = line.strip()
-                if line.startswith("TITLE:"):
-                    title = line.replace("TITLE:", "").strip()
-                elif line.startswith("DESCRIPTION:"):
-                    description = line.replace("DESCRIPTION:", "").strip()
-
-            # Fallback if parsing failed
-            if not title:
-                start_time = metadata.get("window_start_time", 0)
-                title = f"Highlight at {start_time}s"
-                logger.warning("Failed to parse title from response, using fallback")
-
-            if not description:
-                start_time = metadata.get("window_start_time", 0)
-                end_time = metadata.get("window_end_time", 0)
-                description = f"Highlight detected from {start_time}s to {end_time}s"
-                logger.warning(
-                    "Failed to parse description from response, using fallback"
+            try:
+                # Generate captions with Gemini using function calling
+                response = await self.agent.generate_from_video(
+                    video_input=temp_path,
+                    prompt=self.prompt,
+                    tools=[CAPTION_HIGHLIGHT_TOOL],
                 )
 
-            logger.info(f"Generated title: {title}")
-            logger.info(f"Generated description: {description}")
+                logger.info(f"Caption response: {response}")
 
-            metadata["caption_method"] = "gemini_llm"
-            metadata["caption_response"] = response
+                # Extract function call response
+                if (
+                    isinstance(response, dict)
+                    and response.get("name") == "report_highlight_caption"
+                ):
+                    args = response.get("args", {})
+                    title = args.get("title", "")
+                    description = args.get("description", "")
+                    key_action = args.get("key_action", "")
 
-            return title, description, metadata
+                    # Fallback if title or description missing
+                    if not title:
+                        start_time = metadata.get("window_start_time", 0)
+                        title = f"Highlight at {start_time}s"
+                        logger.warning(
+                            "Title missing from function call, using fallback"
+                        )
+
+                    if not description:
+                        start_time = metadata.get("window_start_time", 0)
+                        end_time = metadata.get("window_end_time", 0)
+                        description = (
+                            f"Highlight detected from {start_time}s to {end_time}s"
+                        )
+                        logger.warning(
+                            "Description missing from function call, using fallback"
+                        )
+
+                    logger.info(f"Generated title: {title}")
+                    logger.info(f"Generated description: {description}")
+                    if key_action:
+                        logger.info(f"Key action: {key_action}")
+
+                    metadata["caption_method"] = "gemini_function_calling"
+                    metadata["key_action"] = key_action
+
+                    return title, description, metadata
+                else:
+                    # Fallback if function calling didn't work
+                    logger.warning(
+                        f"Unexpected response format: {response}. Using fallback."
+                    )
+                    start_time = metadata.get("window_start_time", 0)
+                    end_time = metadata.get("window_end_time", 0)
+                    title = f"Highlight at {start_time}s"
+                    description = (
+                        f"Highlight detected from {start_time}s to {end_time}s"
+                    )
+                    metadata["caption_method"] = "function_call_fallback"
+                    return title, description, metadata
+
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(temp_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete temp file {temp_path}: {e}")
 
         except Exception as e:
             logger.error(f"Error in generate_caption: {e}", exc_info=True)

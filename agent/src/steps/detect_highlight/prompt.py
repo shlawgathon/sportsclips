@@ -1,8 +1,10 @@
 """
-Prompts for highlight detection.
+Prompts and tool schemas for highlight detection.
 """
 
-HIGHLIGHT_DETECTION_PROMPT = """Analyze this 3-second video clip and determine if it contains a highlight moment worthy of saving.
+import google.generativeai as genai
+
+HIGHLIGHT_DETECTION_PROMPT = """Analyze this video clip and determine if it contains a highlight moment worthy of saving.
 
 A highlight is:
 - An exciting play or action (goals, dunks, touchdowns, impressive saves, etc.)
@@ -16,4 +18,33 @@ NOT a highlight:
 - Setup moments before action
 - Timeout or break periods
 
-Respond with ONLY "YES" if this is a highlight, or "NO" if it is not. No explanation needed."""
+Use the report_highlight_detection function to provide your assessment."""
+
+# Tool/function declaration for highlight detection
+HIGHLIGHT_DETECTION_TOOL = genai.protos.Tool(
+    function_declarations=[
+        genai.protos.FunctionDeclaration(
+            name="report_highlight_detection",
+            description="Report whether a video clip contains a highlight moment",
+            parameters=genai.protos.Schema(
+                type=genai.protos.Type.OBJECT,
+                properties={
+                    "is_highlight": genai.protos.Schema(
+                        type=genai.protos.Type.BOOLEAN,
+                        description="Whether this video contains a highlight moment",
+                    ),
+                    "confidence": genai.protos.Schema(
+                        type=genai.protos.Type.STRING,
+                        description="Confidence level: 'high', 'medium', or 'low'",
+                        enum=["high", "medium", "low"],
+                    ),
+                    "reason": genai.protos.Schema(
+                        type=genai.protos.Type.STRING,
+                        description="Brief explanation of why this is or is not a highlight",
+                    ),
+                },
+                required=["is_highlight", "confidence"],
+            ),
+        )
+    ]
+)
