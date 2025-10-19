@@ -79,19 +79,19 @@ class APIService {
                         let url = try await clipModel.fetchVideoURL()
                         // Return new instance with actual URL
                         return VideoClip(
-            id: clipModel.id,
-            videoURL: url,
-            caption: clipModel.caption,
-            sport: clipModel.sport,
-            likes: clipModel.likes,
-            comments: clipModel.comments,
-            shares: clipModel.shares,
-            createdAt: clipModel.createdAt,
-            s3Key: clipModel.s3Key,
-            title: clipModel.title,
-            description: clipModel.description,
-            gameId: clipModel.gameId
-        )
+                            id: clipModel.id,
+                            videoURL: url,
+                            caption: clipModel.caption,
+                            sport: clipModel.sport,
+                            likes: clipModel.likes,
+                            comments: clipModel.comments,
+                            shares: clipModel.shares,
+                            createdAt: clipModel.createdAt,
+                            s3Key: clipModel.s3Key,
+                            title: clipModel.title,
+                            description: clipModel.description,
+                            gameId: clipModel.gameId
+                        )
                     }
                 }
 
@@ -106,6 +106,30 @@ class APIService {
         } catch {
             print("Failed to fetch videos: \(error)")
             throw error
+        }
+    }
+
+    // Live videos collection -> map to VideoClip with gameId for live playback
+    func fetchLiveVideos() async throws -> [VideoClip] {
+        let items = try await apiClient.listLiveVideos()
+        return items.map { item in
+            let live = item.live
+            // Derive sport from title/description heuristics
+            let sport = VideoClip.Sport(rawValue: "All") ?? .all
+            return VideoClip(
+                id: item.id,
+                videoURL: "", // live playback via websocket, not direct URL
+                caption: live.description,
+                sport: sport,
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                createdAt: Date(timeIntervalSince1970: TimeInterval(live.createdAt / 1000)),
+                s3Key: nil,
+                title: live.title,
+                description: live.description,
+                gameId: item.id // YouTube videoId used by LiveVideoPlayerView
+            )
         }
     }
 

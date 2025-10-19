@@ -47,6 +47,31 @@ struct RecommendationItem: Codable {
     let clip: Clip
 }
 
+// MARK: - History DTOs
+struct ClipDTO: Codable {
+    let id: String
+    let clip: Clip
+}
+
+struct ViewHistoryItem: Codable {
+    let id: String
+    let viewedAt: Int64
+    let clip: ClipDTO
+}
+
+struct LikeHistoryItem: Codable {
+    let id: String
+    let likedAt: Int64
+    let clip: ClipDTO
+}
+
+struct CommentHistoryItem: Codable {
+    let id: String
+    let text: String
+    let commentedAt: Int64
+    let clip: ClipDTO
+}
+
 final class APIClient {
     private let baseURL: URL
     private let session: URLSession
@@ -165,6 +190,10 @@ final class APIClient {
 
     func listLives() async throws -> [LiveListItem] {
         try await request("/live", response: [LiveListItem].self)
+    }
+
+    func listLiveVideos() async throws -> [LiveListItem] {
+        try await request("/live-videos", response: [LiveListItem].self)
     }
 
     func getLive(id: String) async throws -> LiveVideo {
@@ -348,6 +377,19 @@ final class APIClient {
 
     func recommendations(clipId: String) async throws -> [RecommendationItem] {
         try await request("/clips/\(clipId)/recommendations", response: [RecommendationItem].self)
+    }
+
+    // MARK: - User History
+    func viewHistory(userId: String) async throws -> [ViewHistoryItem] {
+        try await request("/users/\(userId)/history/views", response: [ViewHistoryItem].self)
+    }
+
+    func likeHistory(userId: String) async throws -> [LikeHistoryItem] {
+        try await request("/users/\(userId)/history/likes", response: [LikeHistoryItem].self)
+    }
+
+    func commentHistory(userId: String) async throws -> [CommentHistoryItem] {
+        try await request("/users/\(userId)/history/comments", response: [CommentHistoryItem].self)
     }
 
     // MARK: - Games

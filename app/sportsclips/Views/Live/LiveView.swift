@@ -17,12 +17,12 @@ struct LiveView: View {
     @State private var isLoading = false
     @State private var selectedSport: VideoClip.Sport = .all
     @State private var showSportDropdown = false
-    
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            
-            
+
+
             if filteredVideos.isEmpty && isLoading {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -295,13 +295,13 @@ struct LiveView: View {
                                         currentIndex = index
                                         playerManager.playVideo(for: video.videoURL, videoId: video.id)
                                         localStorage.recordView(videoId: video.id)
-                                        
+
                                         if index >= filteredVideos.count - 2 {
                                             loadMoreVideos()
                                         }
                                     }
                             }
-                            
+
                             // Loading indicator
                             if isLoading {
                                 HStack {
@@ -320,7 +320,7 @@ struct LiveView: View {
                     .ignoresSafeArea()
                 }
             }
-            
+
             // Sport filter dropdown for empty state - positioned as overlay with bubble animation
             if showSportDropdown && filteredVideos.isEmpty {
                 VStack {
@@ -395,15 +395,14 @@ struct LiveView: View {
             loadLiveVideos()
         }
     }
-    
+
     private func loadLiveVideos() {
         guard !isLoading else { return }
-        
+
         isLoading = true
         Task {
             do {
-                // TODO: Replace with actual live streams endpoint
-                let videos = try await apiService.fetchVideos()
+                let videos = try await apiService.fetchLiveVideos()
                 await MainActor.run {
                     self.liveVideos = videos
                     // Filter by sport and randomize order when "All" is selected
@@ -413,7 +412,7 @@ struct LiveView: View {
                         self.filteredVideos = videos.filter { $0.sport == self.selectedSport }
                     }
                     self.isLoading = false
-                    
+
                     // Auto-play first video
                     if !filteredVideos.isEmpty {
                         playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
@@ -427,10 +426,10 @@ struct LiveView: View {
             }
         }
     }
-    
+
     private func loadMoreVideos() {
         guard !isLoading else { return }
-        
+
         isLoading = true
         Task {
             do {
@@ -453,17 +452,17 @@ struct LiveView: View {
             }
         }
     }
-    
+
     private func refreshFeedForSport(_ sport: VideoClip.Sport) {
         // Reset the video lists
         liveVideos = []
         filteredVideos = []
         currentIndex = 0
-        
+
         // Load fresh videos for the selected sport
         loadLiveVideos()
     }
-    
+
 }
 
 #Preview {

@@ -145,6 +145,28 @@ class AgentClient(application: Application) {
                                         log.warn("[AgentClient] error message from agent: ${msg ?: "<none>"}")
                                         break
                                     }
+                                    "live_commentary_chunk" -> {
+                                        // First chunk also releases the gate if not yet released
+                                        releaseGateIfNeeded()
+                                        val data = element.jsonObject["data"] as? JsonElement
+                                        if (data == null) {
+                                            log.warn("[AgentClient] 'live_commentary_chunk' missing 'data' field: $txt")
+                                        } else {
+                                            val base64 = data.jsonObject["video_data"]?.jsonPrimitive?.content
+                                            val metaEl = data.jsonObject["metadata"]
+                                            if (base64 == null || metaEl == null) {
+                                                log.warn("[AgentClient] 'live_commentary_chunk' missing fields: $txt")
+                                            } else {
+                                                try {
+                                                    val bytes = Base64.getDecoder().decode(base64)
+                                                    val meta = Json.decodeFromJsonElement(LiveChunkMeta.serializer(), metaEl)
+                                                    onLiveChunk(bytes, meta)
+                                                } catch (t: Throwable) {
+                                                    log.warn("[AgentClient] Failed to decode live chunk: ${t.message}")
+                                                }
+                                            }
+                                        }
+                                    }
                                     else -> {
                                         // Unknown message still counts as a response; release once.
                                         releaseGateIfNeeded()

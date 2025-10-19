@@ -100,7 +100,54 @@ data class ViewerInfoResponse(
     val viewers: Int
 )
 
+@Serializable
+data class LiveVideoDTO(
+    val title: String,
+    val description: String,
+    val streamUrl: String,
+    val isLive: Boolean,
+    val liveChatId: String? = null,
+    val createdAt: Long
+)
+
+@Serializable
+data class LiveListItemDTO(
+    val id: String,
+    val live: LiveVideoDTO
+)
+
 fun Route.liveRoutes() {
+    // Live videos collection
+    get("/live-videos") {
+        val apiKey = gg.growly.services.Env.get("YOUTUBE_API_KEY")
+        val yt = gg.growly.services.YouTubeKtorService(apiKey ?: "")
+        try {
+            val resp = yt.searchLiveSports("sports live", 20)
+            val items = resp.items.map { item ->
+                val vid = item.id.videoId
+                val title = item.snippet.title
+                val desc = item.snippet.description
+                val url = "https://www.youtube.com/watch?v=$vid"
+                LiveListItemDTO(
+                    id = vid,
+                    live = LiveVideoDTO(
+                        title = title,
+                        description = desc,
+                        streamUrl = url,
+                        isLive = true,
+                        liveChatId = null,
+                        createdAt = System.currentTimeMillis()
+                    )
+                )
+            }
+            call.respond(items)
+        } catch (t: Throwable) {
+            call.respondText("Failed to fetch live videos: ${t.message}", status = io.ktor.http.HttpStatusCode.InternalServerError)
+        } finally {
+            yt.close()
+        }
+    }
+
     route("/live") {
         // Poll latest comments
         get("/{clipId}/comments") {

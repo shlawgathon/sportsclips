@@ -10,7 +10,8 @@ import SwiftUI
 struct LikeHistoryView: View {
     @StateObject private var localStorage = LocalStorageService.shared
     @State private var videos: [VideoClip] = []
-    
+    @State private var items: [LikeHistoryItem] = []
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Section header
@@ -18,27 +19,27 @@ struct LikeHistoryView: View {
                 Text("Liked Videos")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(.white)
-                
+
                 Spacer()
-                
+
                 Text("\(localStorage.interactions.filter { $0.liked }.count)")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white.opacity(0.7))
             }
             .padding(.horizontal, 20)
-            
+
             let likedVideos = localStorage.interactions.filter { $0.liked }
-            
+
             if likedVideos.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "heart.slash")
                         .font(.system(size: 40, weight: .light))
                         .foregroundColor(.white.opacity(0.5))
-                    
+
                     Text("No liked videos yet")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.white.opacity(0.7))
-                    
+
                     Text("Start liking videos to see them here")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundColor(.white.opacity(0.5))
@@ -49,7 +50,7 @@ struct LikeHistoryView: View {
             } else {
                 // Like history grid - scrollable with template content
                 let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 2)
-                
+
                 ScrollView {
                     LazyVGrid(columns: gridColumns, spacing: 12) {
                         // Show actual liked videos if available
@@ -58,7 +59,7 @@ struct LikeHistoryView: View {
                                 LikeHistoryGridItem(video: video, index: index + 1, likedAt: interaction.viewedAt)
                             }
                         }
-                        
+
                         // Add template boxes for demonstration (remove when API is ready)
                         ForEach(0..<8, id: \.self) { index in
                             LikeHistoryTemplateItem(index: index + 1)
@@ -68,7 +69,7 @@ struct LikeHistoryView: View {
                     .padding(.bottom, 20)
                 }
             }
-            
+
             // Recently liked text at bottom
             if !likedVideos.isEmpty {
                 HStack {
@@ -87,7 +88,7 @@ struct LikeHistoryView: View {
             loadVideos()
         }
     }
-    
+
     private func loadVideos() {
         Task {
             let allVideos = try? await APIService.shared.fetchVideos()
@@ -102,7 +103,7 @@ struct LikeHistoryGridItem: View {
     let video: VideoClip
     let index: Int
     let likedAt: Date
-    
+
     var body: some View {
         Button(action: {
             // Navigate back to video - you can implement navigation here
@@ -124,52 +125,52 @@ struct LikeHistoryGridItem: View {
                                 .foregroundColor(.white.opacity(0.8))
                         }
                     )
-                
+
                 // Video info
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Image(systemName: video.sport.icon)
                             .font(.system(size: 10))
                             .foregroundColor(.white.opacity(0.7))
-                        
+
                         Text(video.sport.rawValue)
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.white.opacity(0.7))
-                        
+
                         Spacer()
-                        
+
                         Text("#\(index)")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.white.opacity(0.5))
                     }
-                    
+
                     Text(video.caption)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                    
+
                     HStack(spacing: 8) {
                         HStack(spacing: 2) {
                             Image(systemName: "heart.fill")
                                 .font(.system(size: 8))
                                 .foregroundColor(.red)
-                            
+
                             Text(formatCount(video.likes))
                                 .font(.system(size: 8, weight: .medium))
                                 .foregroundColor(.white.opacity(0.7))
                         }
-                        
+
                         HStack(spacing: 2) {
                             Image(systemName: "message")
                                 .font(.system(size: 8))
                                 .foregroundColor(.white.opacity(0.7))
-                            
+
                             Text(formatCount(video.comments))
                                 .font(.system(size: 8, weight: .medium))
                                 .foregroundColor(.white.opacity(0.7))
                         }
-                        
+
                         Spacer()
                     }
                 }
@@ -184,7 +185,7 @@ struct LikeHistoryGridItem: View {
         }
         .buttonStyle(PlainButtonStyle())
     }
-    
+
     private func formatCount(_ count: Int) -> String {
         if count >= 1_000_000 {
             return String(format: "%.1fM", Double(count) / 1_000_000)
@@ -198,7 +199,7 @@ struct LikeHistoryGridItem: View {
 
 struct LikeHistoryTemplateItem: View {
     let index: Int
-    
+
     var body: some View {
         Button(action: {
             print("Navigate to template video: \(index)")
@@ -219,52 +220,52 @@ struct LikeHistoryTemplateItem: View {
                                 .foregroundColor(.white.opacity(0.8))
                         }
                     )
-                
+
                 // Video info
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Image(systemName: "football")
                             .font(.system(size: 10))
                             .foregroundColor(.white.opacity(0.7))
-                        
+
                         Text("Football")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.white.opacity(0.7))
-                        
+
                         Spacer()
-                        
+
                         Text("#\(index)")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.white.opacity(0.5))
                     }
-                    
+
                     Text("Amazing touchdown play from the game")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                    
+
                     HStack(spacing: 8) {
                         HStack(spacing: 2) {
                             Image(systemName: "heart.fill")
                                 .font(.system(size: 8))
                                 .foregroundColor(.red)
-                            
+
                             Text("1.2K")
                                 .font(.system(size: 8, weight: .medium))
                                 .foregroundColor(.white.opacity(0.7))
                         }
-                        
+
                         HStack(spacing: 2) {
                             Image(systemName: "message")
                                 .font(.system(size: 8))
                                 .foregroundColor(.white.opacity(0.7))
-                            
+
                             Text("45")
                                 .font(.system(size: 8, weight: .medium))
                                 .foregroundColor(.white.opacity(0.7))
                         }
-                        
+
                         Spacer()
                     }
                 }

@@ -485,6 +485,9 @@ fun Application.configureDatabases()
                 call.respond(items)
             }
 
+            // ========== User History ==========
+            historyRoutes(userService, clipService, viewService, likeService, commentService)
+
             // ========== Feed ==========
             get("/feed") {
                 val session = call.sessions.get(UserSession::class) as? UserSession
