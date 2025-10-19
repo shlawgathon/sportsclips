@@ -87,7 +87,11 @@ struct LiveVideoPlayerView: View {
         if let gid = video.gameId, !gid.isEmpty {
             print("[LiveVideoPlayerView][DEBUG] setupPlayer live gid=\(gid)")
             // Live stream path using YouTube source URL from gameId
+            // Ensure audio session is active so audio plays even with the silent switch
+            VideoPlayerManager.shared.ensureAudioSessionActive()
             queuePlayer = AVQueuePlayer()
+            queuePlayer?.isMuted = false
+            queuePlayer?.volume = 1.0
             isLivePlaying = false
             nextExpectedChunk = 1
             liveBufferMap.removeAll()

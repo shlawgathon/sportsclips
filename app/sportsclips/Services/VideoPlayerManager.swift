@@ -18,7 +18,30 @@ class VideoPlayerManager: ObservableObject {
     private var currentActiveVideoId: String? = nil
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
-    private init() {}
+    private init() {
+        configureAudioSession()
+    }
+
+    // MARK: - Audio Session
+    private func configureAudioSession() {
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            // Use playback to play even with the silent switch on
+            try audioSession.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+            try audioSession.setActive(true, options: [])
+            print("🔊 Audio session configured: category=playback mode=moviePlayback")
+        } catch {
+            print("⚠️ Failed to configure audio session: \(error)")
+        }
+    }
+
+    public func ensureAudioSessionActive() {
+        do {
+            try AVAudioSession.sharedInstance().setActive(true, options: [])
+        } catch {
+            print("⚠️ Failed to activate audio session: \(error)")
+        }
+    }
 
     // MARK: - Disk-backed playback helpers
     private func prepareLocalItem(videoURL: String, videoId: String) async -> AVPlayerItem? {
