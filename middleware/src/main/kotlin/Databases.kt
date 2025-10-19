@@ -159,7 +159,7 @@ fun Application.configureDatabases()
                             log.error("[YT-SCHEDULER] Unhandled error in tick: ${e.message}", e)
                         }
                         // Sleep for one minute
-                        val sleepMs = 60_000L * 15
+                        val sleepMs = 60_000L * 45
                         log.debug("[YT-SCHEDULER] Sleeping for ${sleepMs}ms")
                         kotlinx.coroutines.delay(sleepMs)
                     }

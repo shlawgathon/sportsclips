@@ -30,7 +30,7 @@ class AgentClient(application: Application) {
 
     // Gate to ensure only one processVideo request is allowed to proceed
     // until it receives a first response from the agent.
-    private val startGate = Semaphore(5)
+    private val startGate = Semaphore(1)
 
     @Serializable
     data class SnippetMessage(

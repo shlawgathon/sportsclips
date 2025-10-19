@@ -25,6 +25,7 @@ struct GameClipsView: View {
     @State private var timeUpdateTimer: Timer?
     @State private var doubleTapInProgress: [String: Bool] = [:] // Track if double tap is in progress
     @State private var controlShowTimes: [String: Date] = [:] // Track when controls were shown for each video
+    @State private var resolvedGameName: String? = nil // Loaded from backend using gameId
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -251,7 +252,7 @@ struct GameClipsView: View {
 
                     Spacer()
 
-                    Text(gameName)
+                    Text(resolvedGameName ?? gameName)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
 
@@ -269,6 +270,7 @@ struct GameClipsView: View {
             }
         }
         .onAppear {
+            loadGameDetails()
             loadGameClips()
             startTimeUpdateTimer()
         }
@@ -307,6 +309,20 @@ struct GameClipsView: View {
             heartAnimations.removeAll()
 
             print("🎬 GameClipsView disappeared - cleaned up resources")
+        }
+    }
+
+    private func loadGameDetails() {
+        Task {
+            do {
+                let game = try await APIClient.shared.getGame(gameId: gameId)
+                await MainActor.run {
+                    self.resolvedGameName = game.game.name
+                }
+            } catch {
+                // Leave resolvedGameName as nil on failure; fallback to passed gameName
+                print("Failed to load game details for id \(gameId): \(error)")
+            }
         }
     }
 
