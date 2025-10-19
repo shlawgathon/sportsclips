@@ -8,6 +8,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import module
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -21,8 +22,8 @@ class ApplicationTest {
     {
         val client = YouTubeKtorService(Env.getRequired("YOUTUBE_API_KEY"))
         runBlocking {
-            client.searchLiveSports().items.forEach { item ->
-                println(item.snippet)
+            client.getVideoDetails(listOf("Q4_4ePnlE8E", "1jJYzb_p2m8", "TFJ4O8BY7as", "j-vRnZkVl98", "eQfxsaGkXuc", "PuecVTQUEb8")).items.forEach { item ->
+                println(Json.encodeToString(item))
             }
         }
     }
