@@ -40,32 +40,54 @@ struct VideoFeedView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if filteredVideos.isEmpty && isLoading {
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    .scaleEffect(1.5)
-                    .ignoresSafeArea()
-            } else if filteredVideos.isEmpty {
-                GeometryReader { geometry in
-                    VStack {
-                        Spacer()
+            contentView
+            sportFilterBar
+        }
+        .onAppear {
+            loadVideos()
+            startTimeUpdateTimer()
+        }
+        .onChange(of: localStorage.interactions) { _, _ in
+            handleLocalStorageChange()
+        }
+        .onDisappear {
+            handleViewDisappear()
+        }
+        .sheet(isPresented: $showingGameClips) {
+            GameClipsView(gameId: selectedGameId, gameName: selectedGameName)
+        }
+    }
 
-                        VStack(spacing: 20) {
-                            Image(systemName: "flame")
-                                .font(.system(size: 60, weight: .light))
-                                .foregroundColor(.white.opacity(0.6))
+    // MARK: - Content View
+    @ViewBuilder
+    private var contentView: some View {
+        if filteredVideos.isEmpty && isLoading {
+            loadingView
+        } else if filteredVideos.isEmpty {
+            emptyStateView
+        } else {
+            videoScrollView
+        }
+    }
 
-                            Text("No videos available")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(.white.opacity(0.7))
-                        }
-                        .padding(.bottom, 98) // Exactly 10px gap to menu bar
+    // MARK: - Loading View
+    private var loadingView: some View {
+        ProgressView()
+            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+            .scaleEffect(1.5)
+    }
 
-                        Spacer()
-                    }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
+    // MARK: - Empty State View
+    private var emptyStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "flame")
+                .font(.system(size: 60, weight: .light))
+                .foregroundColor(.white.opacity(0.6))
+
+                    Text("No videos available")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
                 }
-                .ignoresSafeArea()
             } else {
                 GeometryReader { geometry in
                     ScrollViewReader { proxy in
@@ -78,46 +100,66 @@ struct VideoFeedView: View {
                                             .frame(width: geometry.size.width, height: geometry.size.height)
                                             .clipped()
 
-                                        // Invisible overlay for tap detection
-                                        Rectangle()
-                                            .fill(Color.clear)
-                                            .frame(width: geometry.size.width, height: geometry.size.height)
-                                            .contentShape(Rectangle())
-                                            .simultaneousGesture(
-                                                // Long press gesture for slider controls (more restrictive to avoid scroll conflicts)
-                                                LongPressGesture(minimumDuration: 1.0, maximumDistance: 10)
-                                                    .onEnded { _ in
-                                                        handleLongPress(for: video)
-                                                    }
-                                            )
-                                            .simultaneousGesture(
-                                                // Tap gesture for pause/play
-                                                TapGesture(count: 1)
-                                                    .onEnded { _ in
-                                                        // Only handle single tap if double tap is not in progress
-                                                        if !(doubleTapInProgress[video.id] ?? false) {
-                                                            handleSingleTap(for: video)
-                                                        }
-                                                    }
-                                            )
-                                            .simultaneousGesture(
-                                                // Double tap gesture for like
-                                                TapGesture(count: 2)
-                                                    .onEnded { _ in
-                                                        doubleTapInProgress[video.id] = true
-                                                        handleDoubleTapLike(for: video, at: CGPoint(x: geometry.size.width/2, y: geometry.size.height/2))
+            // Tap detection overlay
+            tapDetectionOverlay(for: video, geometry: geometry)
 
-                                                        // Reset the flag after a short delay
-                                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                                            doubleTapInProgress[video.id] = false
-                                                        }
-                                                    }
-                                            )
-                                            .zIndex(1) // Above video player
+            // Video overlay with buttons and caption
+            videoOverlayContent(for: video, geometry: geometry)
 
-                                        // Video overlay with buttons and caption
-                                        VStack {
-                                            Spacer()
+            // Heart animation overlay
+            if let heartAnimation = heartAnimations[video.id] {
+                HeartAnimationView(animation: heartAnimation)
+                    .zIndex(3)
+            }
+
+            // Play button overlay when paused
+            if pausedVideos[video.id] == true {
+                pausedVideoOverlay(for: video)
+            }
+        }
+        .frame(width: geometry.size.width, height: geometry.size.height)
+        .id(index)
+        .onAppear {
+            handleVideoAppear(video: video, index: index)
+        }
+        .onDisappear {
+            handleVideoDisappear(video: video)
+        }
+    }
+
+    // MARK: - Tap Detection Overlay
+    private func tapDetectionOverlay(for video: VideoClip, geometry: GeometryProxy) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 1.0, maximumDistance: 10)
+                    .onEnded { _ in
+                        handleLongPress(for: video)
+                    }
+            )
+            .simultaneousGesture(
+                TapGesture(count: 1)
+                    .onEnded { _ in
+                        if !(doubleTapInProgress[video.id] ?? false) {
+                            handleSingleTap(for: video)
+                        }
+                    }
+            )
+            .simultaneousGesture(
+                TapGesture(count: 2)
+                    .onEnded { _ in
+                        handleDoubleTap(for: video, geometry: geometry)
+                    }
+            )
+            .zIndex(1)
+    }
+
+    // MARK: - Video Overlay Content
+    private func videoOverlayContent(for video: VideoClip, geometry: GeometryProxy) -> some View {
+        VStack {
+            Spacer()
 
                                             HStack(alignment: .bottom) {
                                                 // Caption on the left
@@ -167,7 +209,7 @@ struct VideoFeedView: View {
                                                     }
                                                 )
                                             }
-                                            .padding(.bottom, 98) // Exactly 10px gap to menu bar
+                                            .padding(.bottom, 80) // Same gap for both states
                                         }
                                         .zIndex(2) // Above everything else
 
@@ -185,31 +227,40 @@ struct VideoFeedView: View {
                                                 Color.black.opacity(0.2)
                                                     .ignoresSafeArea()
 
-                                                Button(action: {
-                                                    // Resume playback
-                                                    playerManager.playVideo(for: video.videoURL, videoId: video.id)
-                                                    pausedVideos[video.id] = false
-                                                }) {
-                                                    ZStack {
-                                                        // Glass button background
-                                                        Circle()
-                                                            .fill(.ultraThinMaterial)
-                                                            .frame(width: 120, height: 120)
-                                                            .overlay(
-                                                                Circle()
-                                                                    .stroke(
-                                                                        LinearGradient(
-                                                                            colors: [
-                                                                                .white.opacity(0.3),
-                                                                                .white.opacity(0.1)
-                                                                            ],
-                                                                            startPoint: .topLeading,
-                                                                            endPoint: .bottomTrailing
-                                                                        ),
-                                                                        lineWidth: 1.5
-                                                                    )
-                                                            )
-                                                            .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
+            Button(action: {
+                playerManager.playVideo(for: video.videoURL, videoId: video.id)
+                pausedVideos[video.id] = false
+            }) {
+                playButtonView
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+        .animation(.spring(response: 0.5, dampingFraction: 0.7), value: pausedVideos[video.id])
+        .zIndex(5)
+    }
+
+    // MARK: - Play Button View
+    private var playButtonView: some View {
+        ZStack {
+            Circle()
+                .fill(.ultraThinMaterial)
+                .frame(width: 120, height: 120)
+                .overlay(
+                    Circle()
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(0.3),
+                                    .white.opacity(0.1)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.5
+                        )
+                )
+                .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
 
                                                         // Play triangle icon
                                                         Image(systemName: "play.fill")
@@ -319,71 +370,158 @@ struct VideoFeedView: View {
                             }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 8) // Add vertical padding to prevent cutoff
                     }
-                    .padding(.top, 35) // Increased top padding for safe area (moved up 15px)
-                    .frame(maxHeight: 60) // Ensure enough height for the bubbles
-
-                    Spacer()
-                }
+                    .padding(.top, 8) // Minimal top padding
 
                 Spacer()
             }
-        }
-        .onAppear {
-            loadVideos()
-            startTimeUpdateTimer()
-        }
-        .onChange(of: localStorage.interactions) { _, _ in
-            // React to changes in local storage interactions
-            print("🔄 VideoFeedView: LocalStorage interactions changed, refreshing state")
 
-            // Update like states for all videos
-            for video in filteredVideos {
-                if let interaction = localStorage.getInteraction(for: video.id) {
-                    let storedLikedState = interaction.liked
-                    if videoLikeStates[video.id] != storedLikedState {
-                        videoLikeStates[video.id] = storedLikedState
-                        print("🔄 VideoFeedView: Updated like state to \(storedLikedState) for video \(video.id)")
-                    }
-                }
-            }
-
-            // Force UI refresh by updating a dummy state
-            DispatchQueue.main.async {
-                // Trigger a state change to force UI refresh
-                self.currentIndex = self.currentIndex
-            }
-        }
-        .onDisappear {
-            playerManager.pauseAllVideos()
-            stopTimeUpdateTimer()
-
-            // Clean up unused players to free memory
-            let activeVideoIds = filteredVideos.map { $0.id }
-            playerManager.cleanupUnusedPlayers(activeVideoIds: activeVideoIds)
-
-            // Clean up all control states to prevent UI breaking
-            showVideoControls.removeAll()
-            controlsVisible.removeAll()
-            controlShowTimes.removeAll()
-            heartAnimations.removeAll()
-
-            print("🎬 VideoFeedView disappeared - cleaned up resources")
-        }
-        .sheet(isPresented: $showingGameClips) {
-            GameClipsView(gameId: selectedGameId, gameName: selectedGameName)
+            Spacer()
         }
     }
 
+    // MARK: - Event Handlers
+    private func handleVideoAppear(video: VideoClip, index: Int) {
+        currentIndex = index
+        currentVideoIndex = index
+
+        print("🎬 Video appeared: \(video.id) at index \(index)")
+        playerManager.playVideo(for: video.videoURL, videoId: video.id)
+        localStorage.recordView(videoId: video.id)
+        Task { await apiService.markViewed(clipId: video.id) }
+
+        pausedVideos[video.id] = false
+
+        // Check if we need to load more videos
+        if index >= filteredVideos.count - 3 && !isLoadingMore {
+            preloadMoreVideos()
+        }
+
+        // Load like state from local storage
+        if let interaction = localStorage.getInteraction(for: video.id) {
+            videoLikeStates[video.id] = interaction.liked
+            print("🔄 VideoFeedView: Loaded like state \(interaction.liked) for video \(video.id)")
+        }
+    }
+
+    private func handleVideoDisappear(video: VideoClip) {
+        playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
+
+        // Clean up control states
+        showVideoControls[video.id] = false
+        controlsVisible[video.id] = false
+        controlShowTimes.removeValue(forKey: video.id)
+        heartAnimations[video.id] = nil
+    }
+
+    private func handleIndexChange(_ newIndex: Int) {
+        if newIndex < filteredVideos.count {
+            let currentVideo = filteredVideos[newIndex]
+            print("🎬 Scroll detected - switching to video index: \(newIndex), ID: \(currentVideo.id)")
+            playerManager.playVideo(for: currentVideo.videoURL, videoId: currentVideo.id)
+            localStorage.recordView(videoId: currentVideo.id)
+            pausedVideos[currentVideo.id] = false
+        }
+    }
+
+    private func handleSportSelection(_ sport: VideoClip.Sport) {
+        print("🎬 Sport selected: \(sport.rawValue)")
+        selectedSport = sport
+        filterVideos()
+    }
+    private func handleGameTap(for video: VideoClip) {
+        Task {
+            guard let gameId = video.gameId else {
+                print("No gameId available")
+                return
+            }
+            
+            do {
+                let game = try await APIClient.shared.getGame(gameId: gameId)
+                
+                // Update UI on main thread
+                await MainActor.run {
+                    self.selectedGameName = game.name ?? ""
+                    self.selectedGameId = gameId
+                    if !self.selectedGameId.isEmpty {
+                        self.showingGameClips = true
+                    }
+                }
+            } catch {
+                print("Failed to fetch game: \(error)")
+            }
+        }
+    }
+
+    private func handleDoubleTap(for video: VideoClip, geometry: GeometryProxy) {
+        doubleTapInProgress[video.id] = true
+        handleDoubleTapLike(for: video, at: CGPoint(x: geometry.size.width/2, y: geometry.size.height/2))
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            doubleTapInProgress[video.id] = false
+        }
+    }
+
+    private func handleDragStart(for video: VideoClip) {
+        showVideoControls[video.id] = true
+        controlsVisible[video.id] = true
+        let removedTime = controlShowTimes.removeValue(forKey: video.id)
+        print("🎬 Drag started for video: \(video.id)")
+        print("🎬 Removed show time: \(removedTime?.description ?? "none")")
+    }
+
+    private func handleDragEnd(for video: VideoClip) {
+        let newShowTime = Date()
+        controlShowTimes[video.id] = newShowTime
+        print("🎬 Drag ended for video: \(video.id)")
+        print("🎬 New show time recorded: \(newShowTime)")
+    }
+
+    private func handleLocalStorageChange() {
+        print("🔄 VideoFeedView: LocalStorage interactions changed, refreshing state")
+
+        for video in filteredVideos {
+            if let interaction = localStorage.getInteraction(for: video.id) {
+                let storedLikedState = interaction.liked
+                if videoLikeStates[video.id] != storedLikedState {
+                    videoLikeStates[video.id] = storedLikedState
+                    print("🔄 VideoFeedView: Updated like state to \(storedLikedState) for video \(video.id)")
+                }
+            }
+        }
+
+        DispatchQueue.main.async {
+            self.currentIndex = self.currentIndex
+        }
+    }
+
+    private func handleViewDisappear() {
+        playerManager.pauseAllVideos()
+        stopTimeUpdateTimer()
+
+        let activeVideoIds = filteredVideos.map { $0.id }
+        playerManager.cleanupUnusedPlayers(activeVideoIds: activeVideoIds)
+
+        showVideoControls.removeAll()
+        controlsVisible.removeAll()
+        controlShowTimes.removeAll()
+        heartAnimations.removeAll()
+
+        print("🎬 VideoFeedView disappeared - cleaned up resources")
+    }
+
+    // MARK: - Data Loading Methods
     private func loadVideos() {
         guard !isLoading else { return }
 
         isLoading = true
         Task {
             do {
-                // Load initial feed page from API
-                let page = try await apiService.fetchFeedPage(limit: 10, cursor: nil, sport: selectedSport == .all ? nil : APIClient.APISport(rawValue: selectedSport.rawValue))
+                let page = try await apiService.fetchFeedPage(
+                    limit: 10,
+                    cursor: nil,
+                    sport: selectedSport == .all ? nil : APIClient.APISport(rawValue: selectedSport.rawValue)
+                )
                 await MainActor.run {
                     self.nextCursor = page.nextCursor
                     self.allVideos = page.videos
@@ -391,19 +529,12 @@ struct VideoFeedView: View {
                     self.filterVideos()
                     self.isLoading = false
 
-                    // Auto-play first video after a short delay to ensure UI is ready
                     if !filteredVideos.isEmpty {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            print("🎬 Auto-playing first video after load: \(filteredVideos[0].id)")
-                            playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
-                            localStorage.recordView(videoId: filteredVideos[0].id)
-                            Task { await apiService.markViewed(clipId: filteredVideos[0].id) }
-                            // Reset pause state for first video
-                            pausedVideos[filteredVideos[0].id] = false
+                            autoPlayFirstVideo()
                         }
                     }
 
-                    // Start preloading more videos
                     preloadMoreVideos()
                 }
             } catch {
@@ -414,13 +545,27 @@ struct VideoFeedView: View {
         }
     }
 
+    private func autoPlayFirstVideo() {
+        guard !filteredVideos.isEmpty else { return }
+
+        print("🎬 Auto-playing first video after load: \(filteredVideos[0].id)")
+        playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
+        localStorage.recordView(videoId: filteredVideos[0].id)
+        Task { await apiService.markViewed(clipId: filteredVideos[0].id) }
+        pausedVideos[filteredVideos[0].id] = false
+    }
+
     private func preloadMoreVideos() {
         guard !isLoadingMore else { return }
 
         isLoadingMore = true
         Task {
             do {
-                let page = try await apiService.fetchFeedPage(limit: 10, cursor: nextCursor, sport: selectedSport == .all ? nil : APIClient.APISport(rawValue: selectedSport.rawValue))
+                let page = try await apiService.fetchFeedPage(
+                    limit: 10,
+                    cursor: nextCursor,
+                    sport: selectedSport == .all ? nil : APIClient.APISport(rawValue: selectedSport.rawValue)
+                )
                 await MainActor.run {
                     self.nextCursor = page.nextCursor
                     self.allVideos.append(contentsOf: page.videos)
@@ -435,41 +580,11 @@ struct VideoFeedView: View {
         }
     }
 
-    private func generateNewVideo(index: Int) -> VideoClip {
-        let sports: [VideoClip.Sport] = [.football, .basketball, .soccer, .baseball, .tennis, .golf, .hockey, .boxing, .mma, .racing]
-        let sport = sports[index % sports.count]
-
-        let captions = [
-            "Amazing \(sport.rawValue.lowercased()) moment! This incredible play will blow your mind! The athlete showed incredible skill and determination to pull off this spectacular move. Watch as they defy all odds and create a moment that will be remembered for years to come! 🏆",
-            "Unbelievable \(sport.rawValue.lowercased()) action! This is what peak performance looks like! The precision and timing required for this play is absolutely mind-blowing. Every second of this clip showcases the incredible talent and dedication of these athletes! ⚡",
-            "Incredible \(sport.rawValue.lowercased()) highlight! This play demonstrates why this sport is so exciting to watch! The combination of skill, strategy, and pure athleticism creates moments like this that keep fans on the edge of their seats! 🎯",
-            "Spectacular \(sport.rawValue.lowercased()) moment! This is the kind of play that makes you jump out of your seat! The athlete's incredible performance shows what years of training and dedication can achieve. This is sports at its finest! 🌟",
-            "Outstanding \(sport.rawValue.lowercased()) play! This incredible moment showcases the very best of what this sport has to offer! The skill, precision, and determination shown here is absolutely inspiring. This is why we love sports! 💪"
-        ]
-
-        return VideoClip(
-            id: UUID().uuidString,
-            videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            caption: captions[index % captions.count],
-            sport: sport,
-            likes: Int.random(in: 1000...50000),
-            comments: Int.random(in: 50...1000),
-            shares: Int.random(in: 10...500),
-            createdAt: Date(),
-            s3Key: "uploads/generated-\(sport.rawValue.lowercased())-\(index).mp4",
-            title: "\(sport.rawValue) Highlight \(index + 1)",
-            description: captions[index % captions.count],
-            gameId: ""
-        )
-    }
-
     private func filterVideos() {
         print("🎬 Filtering videos for sport: \(selectedSport.rawValue)")
         print("🎬 Total videos before filtering: \(videos.count)")
-        print("🎬 Videos sports: \(videos.map { $0.sport.rawValue })")
 
         if selectedSport == .all {
-            // Randomize the order of all videos for the "All" tab
             filteredVideos = videos.shuffled()
             print("🎬 Randomized all videos for 'All' tab")
         } else {
@@ -477,90 +592,22 @@ struct VideoFeedView: View {
         }
 
         print("🎬 Filtered videos count: \(filteredVideos.count)")
-        print("🎬 Filtered videos sports: \(filteredVideos.map { $0.sport.rawValue })")
-
         currentIndex = 0
 
-        // Auto-play first video after filtering
         if !filteredVideos.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                print("🎬 Auto-playing first video after filter: \(filteredVideos[0].id)")
-                playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
-                localStorage.recordView(videoId: filteredVideos[0].id)
-                // Reset pause state for first video
-                pausedVideos[filteredVideos[0].id] = false
+                autoPlayFirstVideo()
             }
         }
     }
 
-    private func handleDoubleTapLike(for video: VideoClip, at location: CGPoint) {
-        // Toggle like state
-        let currentLikeState = videoLikeStates[video.id] ?? false
-        let newLikeState = !currentLikeState
-
-        // Update state with animation
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            videoLikeStates[video.id] = newLikeState
-        }
-
-        // Record interaction in local storage
-        localStorage.recordInteraction(
-            videoId: video.id,
-            liked: newLikeState,
-            commented: false,
-            shared: false
-        )
-
-        // Add haptic feedback
-        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-        impactFeedback.impactOccurred()
-
-        // Create heart animation
-        let heartAnimation = HeartAnimation(
-            id: UUID().uuidString,
-            location: location,
-            isLiked: newLikeState
-        )
-        heartAnimations[video.id] = heartAnimation
-
-        // Remove animation after it completes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            heartAnimations.removeValue(forKey: video.id)
-        }
-
-        // Call API to like/unlike the video
-        Task {
-            do {
-                try await apiService.likeVideo(clipId: video.id)
-                print("✅ Successfully liked/unliked video via double-tap: \(video.id)")
-            } catch {
-                print("❌ Failed to like/unlike video via double-tap: \(error)")
-                // Revert the optimistic update on failure
-                await MainActor.run {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        videoLikeStates[video.id] = !newLikeState
-                    }
-                }
-            }
-        }
-
-        // Force UI refresh by updating a dummy state
-        DispatchQueue.main.async {
-            // Trigger a state change to force UI refresh
-            self.currentIndex = self.currentIndex
-        }
-
-        print("🎬 Double tapped to like video: \(video.id), new state: \(newLikeState)")
-    }
-
+    // MARK: - Interaction Handlers
     private func handleSingleTap(for video: VideoClip) {
-        // Don't handle single tap if controls are visible (during slider interaction)
         guard !(controlsVisible[video.id] ?? false) else {
             print("🎬 Single tap ignored - controls are visible")
             return
         }
 
-        // Toggle play/pause on single tap
         let player = playerManager.getPlayer(for: video.videoURL, videoId: video.id)
         if player.timeControlStatus == .playing {
             playerManager.pauseVideo(for: video.videoURL, videoId: video.id)
@@ -572,24 +619,68 @@ struct VideoFeedView: View {
         print("Single tapped to toggle play/pause for video: \(video.id)")
     }
 
+    private func handleDoubleTapLike(for video: VideoClip, at location: CGPoint) {
+        let currentLikeState = videoLikeStates[video.id] ?? false
+        let newLikeState = !currentLikeState
+
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            videoLikeStates[video.id] = newLikeState
+        }
+
+        localStorage.recordInteraction(
+            videoId: video.id,
+            liked: newLikeState,
+            commented: false,
+            shared: false
+        )
+
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+
+        let heartAnimation = HeartAnimation(
+            id: UUID().uuidString,
+            location: location,
+            isLiked: newLikeState
+        )
+        heartAnimations[video.id] = heartAnimation
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            heartAnimations.removeValue(forKey: video.id)
+        }
+
+        Task {
+            do {
+                try await apiService.likeVideo(clipId: video.id)
+                print("✅ Successfully liked/unliked video via double-tap: \(video.id)")
+            } catch {
+                print("❌ Failed to like/unlike video via double-tap: \(error)")
+                await MainActor.run {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        videoLikeStates[video.id] = !newLikeState
+                    }
+                }
+            }
+        }
+
+        DispatchQueue.main.async {
+            self.currentIndex = self.currentIndex
+        }
+
+        print("🎬 Double tapped to like video: \(video.id), new state: \(newLikeState)")
+    }
+
     private func handleLongPress(for video: VideoClip) {
-        // Show controls on long press
         let showTime = Date()
         showVideoControls[video.id] = true
         controlsVisible[video.id] = true
-        controlShowTimes[video.id] = showTime // Record when controls were shown
+        controlShowTimes[video.id] = showTime
 
         print("🎬 Long pressed to show controls for video: \(video.id)")
-        print("🎬 showVideoControls[\(video.id)] = \(showVideoControls[video.id] ?? false)")
-        print("🎬 Control show time recorded: \(showTime)")
-        print("🎬 Timer will auto-hide controls at: \(Date(timeIntervalSinceNow: 3.0))")
     }
 
+    // MARK: - Helper Methods
     private func extractGameName(from video: VideoClip) -> String {
-        // Try to extract game name from title first, then description
         let textToAnalyze = video.title ?? video.description ?? video.caption
-
-        // Look for common game patterns
         let lowercasedText = textToAnalyze.lowercased()
 
         // Check for specific game types
@@ -616,7 +707,7 @@ struct VideoFeedView: View {
             return title
         }
 
-        // Fallback to first few words of description
+        // Fallback to first few words
         let words = textToAnalyze.components(separatedBy: " ")
         if words.count >= 2 {
             return "\(words[0]) \(words[1])"
@@ -625,8 +716,8 @@ struct VideoFeedView: View {
         return "Game Highlights"
     }
 
+    // MARK: - Video Control Methods
     private func getCurrentTime(for videoId: String) -> Double {
-        // Get current time from the video that matches this ID
         if filteredVideos.contains(where: { $0.id == videoId }) {
             return currentVideoTimes[videoId] ?? 0.0
         }
@@ -634,55 +725,52 @@ struct VideoFeedView: View {
     }
 
     private func getDuration(for videoId: String) -> Double {
-        // Get duration from the video that matches this ID
         if filteredVideos.contains(where: { $0.id == videoId }) {
-            // Use a cached duration or fallback
-            return 596.0 // Fallback for BigBuckBunny - we can improve this later
+            return 596.0 // Fallback for BigBuckBunny
         }
         return 596.0
     }
 
     private func seekToTime(for videoId: String, time: Double) {
-        // Seek the video that matches this ID
         if let video = filteredVideos.first(where: { $0.id == videoId }) {
             playerManager.seekVideo(for: video.videoURL, videoId: video.id, to: time)
         }
     }
 
-        private func startTimeUpdateTimer() {
-            // Invalidate existing timer to prevent duplicates
-            timeUpdateTimer?.invalidate()
+    // MARK: - Timer Management
+    private func startTimeUpdateTimer() {
+        timeUpdateTimer?.invalidate()
 
-            print("🎬 Starting time update timer for VideoFeedView")
+        print("🎬 Starting time update timer for VideoFeedView")
 
-            timeUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-                Task { @MainActor in
-                    // Update current time for all videos
-                    for video in filteredVideos {
-                        let currentTime = playerManager.getCurrentTime(for: video.videoURL, videoId: video.id)
-                        currentVideoTimes[video.id] = currentTime
+        timeUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            Task { @MainActor in
+                updateVideoTimes()
+                checkControlVisibility()
+            }
+        }
+    }
 
-                    // Check if controls should be hidden (3 seconds after showing)
-                    if let showTime = controlShowTimes[video.id] {
-                        let elapsed = Date().timeIntervalSince(showTime)
-                        if elapsed >= 3.0 {
-                            print("🎬 Timer check: Hiding controls for video \(video.id) after \(String(format: "%.1f", elapsed))s")
-                            showVideoControls[video.id] = false
-                            controlsVisible[video.id] = false
-                            controlShowTimes.removeValue(forKey: video.id)
-                            print("🎬 Auto-hiding controls for video: \(video.id) after 3s")
-                        } else {
-                            // Debug: Log remaining time every 0.5 seconds
-                            if Int(elapsed * 10) % 5 == 0 {
-                                let remaining = 3.0 - elapsed
-                                print("🎬 Timer check: Video \(video.id) controls visible for \(String(format: "%.1f", elapsed))s, remaining: \(String(format: "%.1f", remaining))s")
-                            }
-                        }
-                    }
-                }
+    private func updateVideoTimes() {
+        for video in filteredVideos {
+            let currentTime = playerManager.getCurrentTime(for: video.videoURL, videoId: video.id)
+            currentVideoTimes[video.id] = currentTime
+        }
+    }
+
+    private func checkControlVisibility() {
+        for video in filteredVideos {
+            if let showTime = controlShowTimes[video.id] {
+                let elapsed = Date().timeIntervalSince(showTime)
+                if elapsed >= 3.0 {
+                    print("🎬 Timer check: Hiding controls for video \(video.id)")
+                    showVideoControls[video.id] = false
+                    controlsVisible[video.id] = false
+                    controlShowTimes.removeValue(forKey: video.id)
                 }
             }
         }
+    }
 
     private func stopTimeUpdateTimer() {
         print("🎬 Stopping time update timer for VideoFeedView")
@@ -691,6 +779,7 @@ struct VideoFeedView: View {
     }
 }
 
+// MARK: - Sport Bubble Component
 struct SportBubble: View {
     let sport: VideoClip.Sport
     let isSelected: Bool
@@ -713,8 +802,7 @@ struct SportBubble: View {
                     .minimumScaleFactor(0.8) // Allow slight scaling for long text
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12) // Increased vertical padding
-            .frame(minHeight: 44) // Ensure minimum height for touch targets
+            .padding(.vertical, 10)
             .background(
                 ZStack {
                     // Outer glow for selected state
@@ -725,43 +813,32 @@ struct SportBubble: View {
                             .scaleEffect(1.1)
                     }
 
-                    // Main capsule
+            // Main capsule
+            Capsule()
+                .fill(isSelected ? .ultraThinMaterial : .thinMaterial)
+                .overlay(
                     Capsule()
-                        .fill(isSelected ? .ultraThinMaterial : .thinMaterial)
-                        .overlay(
-                            Capsule()
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [
-                                            .white.opacity(isSelected ? 0.3 : 0.1),
-                                            .white.opacity(isSelected ? 0.15 : 0.05)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: isSelected ? 1.2 : 0.8
-                                )
+                        .stroke(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(isSelected ? 0.3 : 0.1),
+                                    .white.opacity(isSelected ? 0.15 : 0.05)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: isSelected ? 1.2 : 0.8
                         )
-                        .shadow(
-                            color: .black.opacity(isSelected ? 0.15 : 0.08),
-                            radius: isSelected ? 6 : 3,
-                            x: 0,
-                            y: isSelected ? 3 : 1
-                        )
-                }
-            )
+                )
+                .shadow(
+                    color: .black.opacity(isSelected ? 0.15 : 0.08),
+                    radius: isSelected ? 6 : 3,
+                    x: 0,
+                    y: isSelected ? 3 : 1
+                )
         }
-        .buttonStyle(PlainButtonStyle())
-        .scaleEffect(isSelected ? 1.08 : (isPressed ? 0.95 : 1.0))
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: isSelected)
-        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isPressed)
-        .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
-            isPressed = pressing
-        }, perform: {})
     }
 }
-
-// MARK: - Heart Animation Models and Views
 
 #Preview {
     VideoFeedView()

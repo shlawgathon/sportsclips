@@ -4,13 +4,15 @@ Prompts and tool schemas for highlight captioning.
 
 from google.genai import types
 
-CAPTION_HIGHLIGHT_PROMPT = """Analyze this sports highlight video and generate a compelling title and description.
+CAPTION_HIGHLIGHT_PROMPT = """
+Analyze this sports highlight video and generate a compelling title and description. This title and description will be used for a short form video.
 
-Create a short, exciting title (5-10 words) that captures the essence of the play. Use action words and be specific about what happened.
+Ensure you look closely at the videos to identify the key players and teams to include in your deliverables.
 
-Write a brief description (1-2 sentences) that provides context and details about the highlight.
-
-Also identify the key action or event that occurred.
+Here are your key deliverables:
+- Create a short, exciting title (5-10 words) that captures the essence of the play. Use action words and be specific about what happened. Include the specifics about the players or teams involved in the play.
+- Write a brief description (1-2 sentences) that provides context and details about the highlight. Include information about why the moment is so significant to the game.
+- Also identify the key action or event that occurred for classification later.
 
 Use the report_highlight_caption function to provide the title, description, and key action."""
 
@@ -33,7 +35,7 @@ CAPTION_HIGHLIGHT_TOOL = types.Tool(
                     ),
                     "key_action": types.Schema(
                         type=types.Type.STRING,
-                        description="The main action or event in the highlight",
+                        description="The main action or event in the highlight (3-4 words)",
                     ),
                 },
                 required=["title", "description"],

@@ -14,7 +14,6 @@ from .detect_highlight import (
     HIGHLIGHT_DETECTION_PROMPT,
     HighlightDetector,
     detect_highlight_step,
-    is_highlight_step,
 )
 from .trim_highlight import (
     TRIM_HIGHLIGHT_PROMPT,
@@ -25,7 +24,6 @@ from .trim_highlight import (
 __all__ = [
     # Detect highlight
     "detect_highlight_step",
-    "is_highlight_step",
     "HighlightDetector",
     "HIGHLIGHT_DETECTION_PROMPT",
     # Trim highlight

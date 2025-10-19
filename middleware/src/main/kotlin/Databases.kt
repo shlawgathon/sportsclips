@@ -62,14 +62,19 @@ fun Application.configureDatabases()
         environment.monitor.subscribe(ApplicationStarted) {
             log.info("[YT-SCHEDULER] Starting YouTube top games scheduler")
             schedulerJob = schedulerScope.launch {
-                try {
-                    while (isActive) {
+                try
+                {
+                    while (isActive)
+                    {
                         val tickStartedAt = System.currentTimeMillis()
-                        try {
+                        try
+                        {
                             log.info("[YT-SCHEDULER] Tick started")
                             val sports = Sport.values().filter { it != Sport.All }
-                            for (sp in sports) {
-                                try {
+                            for (sp in sports)
+                            {
+                                try
+                                {
                                     log.debug("[YT-SCHEDULER] Querying YouTube for sport=${sp.name}")
                                     val resp = youtube.searchLiveSports("${sp.name} live", 10)
                                     log.info("[YT-SCHEDULER] sport=${sp.name} fetched=${resp.items.size}")
@@ -79,14 +84,17 @@ fun Application.configureDatabases()
                                         val sourceUrl = "https://www.youtube.com/watch?v=$videoId"
                                         log.debug("[YT-SCHEDULER] Processing item sport=${sp.name} videoId=$videoId title='${title}'")
                                         // Ensure game exists/upsert
-                                        try {
+                                        try
+                                        {
                                             liveGameService.create(LiveGame(gameId = videoId, name = title, sport = sp))
                                             log.debug("[YT-SCHEDULER] Upserted LiveGame videoId=$videoId")
-                                        } catch (e: Exception) {
+                                        } catch (e: Exception)
+                                        {
                                             log.debug("[YT-SCHEDULER] LiveGame upsert skipped or failed videoId=$videoId reason=${e.message}")
                                         }
                                         // Track video in catalog as Queued if new and trigger background ingestion if not already processing/completed
-                                        try {
+                                        try
+                                        {
                                             val id = trackedVideoService.upsert(
                                                 TrackedVideo(
                                                     youtubeVideoId = videoId,
@@ -101,9 +109,11 @@ fun Application.configureDatabases()
                                             // Decide whether to kick off ingestion for this video
                                             val existing = trackedVideoService.getByYouTubeId(videoId)
                                             val status = existing?.second?.status
-                                            if (status == null || status == ProcessingStatus.Queued || status == ProcessingStatus.Error) {
+                                            if (status == null || status == ProcessingStatus.Queued || status == ProcessingStatus.Error)
+                                            {
                                                 // mark as processing to avoid duplicates, then launch worker
-                                                try {
+                                                try
+                                                {
                                                     trackedVideoService.setStatus(videoId, ProcessingStatus.Processing)
                                                     // Rate limit agent starts to 5 rps -> 200ms spacing between starts
                                                     // Launch ingestion in background so scheduler can continue
@@ -111,59 +121,118 @@ fun Application.configureDatabases()
                                                         // small spacing to honor 5 rps global rate
                                                         delay(200)
                                                         var created = 0
-                                                        try {
-                                                            agent.processVideo(sourceUrl, isLive = true) { bytes, clipTitle, description ->
-                                                                val key = "clips/$videoId/${System.currentTimeMillis()}.mp4"
-                                                                try { s3u.uploadBytes(bytes, key, contentType = "video/mp4") } catch (thing: Exception) {
-                                                                    thing.printStackTrace()
+                                                        try
+                                                        {
+                                                            agent.processVideo(
+                                                                sourceUrl = sourceUrl,
+                                                                isLive = true,
+                                                                onSnippet = { bytes, clipTitle, description ->
+                                                                    val sz = bytes.size
+                                                                    log.info("[YT-INGEST] onSnippet start videoId=$videoId bytes=$sz title='${clipTitle ?: title}' descLen=${description?.length ?: 0}")
+                                                                    val key =
+                                                                        "clips/$videoId/${System.currentTimeMillis()}.mp4"
+                                                                    try
+                                                                    {
+                                                                        log.debug("[YT-INGEST] Uploading to S3 key=$key size=$sz")
+                                                                        s3u.uploadBytes(
+                                                                            bytes,
+                                                                            key,
+                                                                            contentType = "video/mp4"
+                                                                        )
+                                                                        log.info("[YT-INGEST] S3 upload success key=$key size=$sz")
+                                                                    } catch (thing: Exception)
+                                                                    {
+                                                                        log.warn("[YT-INGEST] S3 upload failed key=$key reason=${thing.message}", thing)
+                                                                        thing.printStackTrace()
+                                                                    }
+                                                                    val text = listOfNotNull(
+                                                                        clipTitle,
+                                                                        description
+                                                                    ).joinToString("\n")
+                                                                    val embedding = if (text.isNotBlank()) try
+                                                                    {
+                                                                        log.debug("[YT-INGEST] Embedding text for videoId=$videoId len=${text.length}")
+                                                                        voyage.embed(text)
+                                                                    } catch (e: Exception)
+                                                                    {
+                                                                        log.warn("[YT-INGEST] Embedding failed videoId=$videoId reason=${e.message}", e); null
+                                                                    } else null
+                                                                    try {
+                                                                        clipService.create(
+                                                                            Clip(
+                                                                                s3Key = key,
+                                                                                title = clipTitle ?: title,
+                                                                                description = description ?: "",
+                                                                                gameId = videoId,
+                                                                                sport = sp,
+                                                                                embedding = embedding
+                                                                            )
+                                                                        )
+                                                                        created++
+                                                                        log.info("[YT-INGEST] Clip created videoId=$videoId key=$key createdCount=$created")
+                                                                    } catch (e: Exception) {
+                                                                        log.error("[YT-INGEST] Clip create failed videoId=$videoId key=$key reason=${e.message}", e)
+                                                                    }
                                                                 }
-                                                                val text = listOfNotNull(clipTitle, description).joinToString("\n")
-                                                                val embedding = if (text.isNotBlank()) try { voyage.embed(text) } catch (e: Exception) { e.printStackTrace(); null } else null
-                                                                clipService.create(
-                                                                    Clip(
-                                                                        s3Key = key,
-                                                                        title = clipTitle ?: title,
-                                                                        description = description ?: "",
-                                                                        gameId = videoId,
-                                                                        sport = sp,
-                                                                        embedding = embedding
-                                                                    )
-                                                                )
-                                                                created++
-                                                            }
-                                                            trackedVideoService.setStatus(videoId, ProcessingStatus.Completed)
+                                                            )
+                                                            trackedVideoService.setStatus(
+                                                                videoId,
+                                                                ProcessingStatus.Completed
+                                                            )
                                                             log.info("[YT-INGEST] Completed videoId=$videoId createdClips=$created")
-                                                        } catch (ex: Exception) {
-                                                            trackedVideoService.setStatus(videoId, ProcessingStatus.Error)
-                                                            log.warn("[YT-INGEST] Error processing videoId=$videoId reason=${ex.message}", ex)
+                                                        } catch (ex: Exception)
+                                                        {
+                                                            trackedVideoService.setStatus(
+                                                                videoId,
+                                                                ProcessingStatus.Error
+                                                            )
+                                                            log.warn(
+                                                                "[YT-INGEST] Error processing videoId=$videoId reason=${ex.message}",
+                                                                ex
+                                                            )
                                                         }
                                                     }
-                                                } catch (ex: Exception) {
-                                                    log.warn("[YT-SCHEDULER] Could not mark/launch processing for videoId=$videoId reason=${ex.message}", ex)
+                                                } catch (ex: Exception)
+                                                {
+                                                    log.warn(
+                                                        "[YT-SCHEDULER] Could not mark/launch processing for videoId=$videoId reason=${ex.message}",
+                                                        ex
+                                                    )
                                                 }
-                                            } else {
+                                            } else
+                                            {
                                                 log.debug("[YT-SCHEDULER] Skipping ingestion for videoId=$videoId existingStatus=$status")
                                             }
-                                        } catch (e: Exception) {
-                                            log.warn("[YT-SCHEDULER] Failed to upsert TrackedVideo videoId=$videoId sport=${sp.name} reason=${e.message}", e)
+                                        } catch (e: Exception)
+                                        {
+                                            log.warn(
+                                                "[YT-SCHEDULER] Failed to upsert TrackedVideo videoId=$videoId sport=${sp.name} reason=${e.message}",
+                                                e
+                                            )
                                         }
                                     }
-                                } catch (e: Exception) {
+                                } catch (e: Exception)
+                                {
                                     // swallow sport-specific errors to keep loop healthy
-                                    log.error("[YT-SCHEDULER] Error while querying/processing sport=${sp.name}: ${e.message}", e)
+                                    log.error(
+                                        "[YT-SCHEDULER] Error while querying/processing sport=${sp.name}: ${e.message}",
+                                        e
+                                    )
                                 }
                             }
                             log.info("[YT-SCHEDULER] Tick completed durationMs=${System.currentTimeMillis() - tickStartedAt}")
-                        } catch (e: Exception) {
+                        } catch (e: Exception)
+                        {
                             // ignore outer loop errors
                             log.error("[YT-SCHEDULER] Unhandled error in tick: ${e.message}", e)
                         }
                         // Sleep for one minute
-                        val sleepMs = 60_000L
+                        val sleepMs = 60_000L * 45
                         log.debug("[YT-SCHEDULER] Sleeping for ${sleepMs}ms")
                         kotlinx.coroutines.delay(sleepMs)
                     }
-                } catch (e: Exception) {
+                } catch (e: Exception)
+                {
                     // exiting scheduler
                     log.warn("[YT-SCHEDULER] Scheduler exiting due to exception: ${e.message}", e)
                 }
@@ -171,43 +240,75 @@ fun Application.configureDatabases()
         }
     }
 
-    @Serializable data class RegisterRequest(val username: String, val password: String, val profilePictureBase64: String? = null)
-    @Serializable data class LoginRequest(val username: String, val password: String)
-    @Serializable data class CreateLiveRequest(val title: String, val description: String, val streamUrl: String, val isLive: Boolean = true)
-    @Serializable data class PresignUploadRequest(val key: String, val contentType: String? = null)
-    @Serializable data class CreateClipRequest(val s3Key: String, val title: String, val description: String, val gameId: String, val sport: Sport)
-    @Serializable data class CreateGameRequest(val gameId: String, val name: String, val sport: Sport)
-    @Serializable data class CommentRequest(val text: String)
+    @Serializable
+    data class RegisterRequest(val username: String, val password: String, val profilePictureBase64: String? = null)
+    @Serializable
+    data class LoginRequest(val username: String, val password: String)
+    @Serializable
+    data class CreateLiveRequest(
+        val title: String,
+        val description: String,
+        val streamUrl: String,
+        val isLive: Boolean = true
+    )
+
+    @Serializable
+    data class PresignUploadRequest(val key: String, val contentType: String? = null)
+    @Serializable
+    data class CreateClipRequest(
+        val s3Key: String,
+        val title: String,
+        val description: String,
+        val gameId: String,
+        val sport: Sport
+    )
+
+    @Serializable
+    data class CreateGameRequest(val gameId: String, val name: String, val sport: Sport)
+    @Serializable
+    data class CommentRequest(val text: String)
 
     // Serializable wrappers for responses
-    @Serializable data class LiveListItem(val id: String, val live: LiveVideo)
-    @Serializable data class ClipListItem(val id: String, val clip: Clip)
-    @Serializable data class CommentItem(val id: String, val postedByUsername: String, val comment: Comment)
-    @Serializable data class RecommendationItem(val id: String, val score: Double, val clip: Clip)
-    @Serializable data class FeedItem(val id: String, val clip: Clip, val viewed: Boolean)
-    @Serializable data class FeedResponse(val items: List<FeedItem>, val nextCursor: Long?)
-    @Serializable data class UpdateProfileRequest(val displayName: String? = null, val profilePictureBase64: String? = null)
-    @Serializable data class UserItem(val id: String, val user: User)
+    @Serializable
+    data class LiveListItem(val id: String, val live: LiveVideo)
+    @Serializable
+    data class ClipListItem(val id: String, val clip: Clip)
+    @Serializable
+    data class CommentItem(val id: String, val postedByUsername: String, val comment: Comment)
+    @Serializable
+    data class RecommendationItem(val id: String, val score: Double, val clip: Clip)
+    @Serializable
+    data class FeedItem(val id: String, val clip: Clip, val viewed: Boolean)
+    @Serializable
+    data class FeedResponse(val items: List<FeedItem>, val nextCursor: Long?)
+    @Serializable
+    data class UpdateProfileRequest(val displayName: String? = null, val profilePictureBase64: String? = null)
+    @Serializable
+    data class UserItem(val id: String, val user: User)
 
     routing {
         // ========== Auth ==========
         post("/auth/register") {
             val body = call.receive<RegisterRequest>()
-            try {
+            try
+            {
                 val id = userService.create(body.username, body.password, body.profilePictureBase64)
                 call.respond(HttpStatusCode.Created, mapOf("userId" to id))
-            } catch (e: Exception) {
+            } catch (e: Exception)
+            {
                 call.respond(HttpStatusCode.Conflict, mapOf("error" to (e.message ?: "conflict")))
             }
         }
         post("/auth/login") {
             val body = call.receive<LoginRequest>()
             val verified = userService.verifyCredentials(body.username, body.password)
-            if (verified != null) {
+            if (verified != null)
+            {
                 val (id, _) = verified
                 call.sessions.set(UserSession(id))
                 call.respond(mapOf("userId" to id))
-            } else {
+            } else
+            {
                 call.respond(HttpStatusCode.Unauthorized)
             }
         }
@@ -247,7 +348,7 @@ fun Application.configureDatabases()
             get("/games/{gameId}") {
                 val gid = call.parameters["gameId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val game = liveGameService.getByGameId(gid) ?: return@get call.respond(HttpStatusCode.NotFound)
-                call.respond(mapOf("id" to game.first, "game" to game.second))
+                call.respond(game.second)
             }
 
             // ========== Clips ==========
@@ -263,7 +364,11 @@ fun Application.configureDatabases()
             }
             get("/clips/by-sport/{sport}") {
                 val sportParam = call.parameters["sport"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                val sport = try { Sport.valueOf(sportParam) } catch (_: Exception) {
+                val sport = try
+                {
+                    Sport.valueOf(sportParam)
+                } catch (_: Exception)
+                {
                     // try case-insensitive
                     Sport.values().firstOrNull { it.name.equals(sportParam, ignoreCase = true) }
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid sport"))
@@ -276,8 +381,10 @@ fun Application.configureDatabases()
             get("/clips/presign-download/{id}") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val clip = clipService.get(id) ?: return@get call.respond(HttpStatusCode.NotFound)
-                val url = s3u.generatePresignedGetUrl(clip.s3Key,
-                    expiration = 5.minutes)
+                val url = s3u.generatePresignedGetUrl(
+                    clip.s3Key,
+                    expiration = 5.minutes
+                )
                 call.respond(mapOf("url" to url))
             }
             get("/clips/{id}") {
@@ -290,9 +397,11 @@ fun Application.configureDatabases()
                 val session = call.sessions.get(UserSession::class) as? UserSession
                 val userId = session?.userId ?: "anonymous"
                 val insertedId = likeService.add(Like(clipId = id, userId = userId))
-                if (insertedId != null) {
+                if (insertedId != null)
+                {
                     clipService.incLikeAndComments(id, likeDelta = 1)
-                    if (userId != "anonymous") {
+                    if (userId != "anonymous")
+                    {
                         userService.addLikedClip(userId, id)
                     }
                 }
@@ -303,9 +412,11 @@ fun Application.configureDatabases()
                 val session = call.sessions.get(UserSession::class) as? UserSession
                 val userId = session?.userId ?: "anonymous"
                 val removed = likeService.remove(id, userId)
-                if (removed) {
+                if (removed)
+                {
                     clipService.incLikeAndComments(id, likeDelta = -1)
-                    if (userId != "anonymous") {
+                    if (userId != "anonymous")
+                    {
                         userService.removeLikedClip(userId, id)
                     }
                 }
@@ -315,10 +426,12 @@ fun Application.configureDatabases()
                 val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 val session = call.sessions.get(UserSession::class) as? UserSession
                 val userId = session?.userId ?: "anonymous"
-                try {
+                try
+                {
                     viewService.markViewed(id, userId)
                     call.respond(HttpStatusCode.OK)
-                } catch (e: Exception) {
+                } catch (e: Exception)
+                {
                     call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "failed")))
                 }
             }
@@ -334,7 +447,13 @@ fun Application.configureDatabases()
             }
             get("/clips/{id}/comments") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                val comments = commentService.listByClip(id).map { (cid, c) -> CommentItem(id = cid, userService.getById(c.userId)?.second?.displayName ?: "???", comment = c) }
+                val comments = commentService.listByClip(id).map { (cid, c) ->
+                    CommentItem(
+                        id = cid,
+                        userService.getById(c.userId)?.second?.displayName ?: "???",
+                        comment = c
+                    )
+                }
                 call.respond(comments)
             }
 
@@ -350,7 +469,9 @@ fun Application.configureDatabases()
                 val userId = session?.userId ?: return@post call.respond(HttpStatusCode.Unauthorized)
                 val body = call.receive<UpdateProfileRequest>()
                 val updated = userService.updateProfile(userId, body.displayName, body.profilePictureBase64)
-                if (updated != null) call.respond(UserItem(id = userId, user = updated)) else call.respond(HttpStatusCode.NotFound)
+                if (updated != null) call.respond(UserItem(id = userId, user = updated)) else call.respond(
+                    HttpStatusCode.NotFound
+                )
             }
 
             get("/catalog") {
@@ -366,12 +487,17 @@ fun Application.configureDatabases()
                 val cursor = call.request.queryParameters["cursor"]?.toLongOrNull()
                 val sportParam = call.request.queryParameters["sport"]
                 val sport = sportParam?.let {
-                    try { Sport.valueOf(it) } catch (_: Exception) {
+                    try
+                    {
+                        Sport.valueOf(it)
+                    } catch (_: Exception)
+                    {
                         Sport.values().firstOrNull { s -> s.name.equals(it, ignoreCase = true) }
                     }
                 }
 
-                val all = when {
+                val all = when
+                {
                     sport != null -> clipService.listBySport(sport)
                     else -> clipService.listAll()
                 }

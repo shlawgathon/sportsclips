@@ -22,6 +22,7 @@ ktor {
 }
 
 dependencies {
+    implementation("io.ktor:ktor-server-websockets")
     implementation("org.openfolder:kotlin-asyncapi-ktor:3.1.2")
     implementation("io.ktor:ktor-server-core")
     implementation("com.ucasoft.ktor:ktor-simple-cache:0.55.3")

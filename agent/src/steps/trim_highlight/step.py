@@ -5,7 +5,6 @@ This module provides a pipeline step that uses the Gemini agent to identify
 which portions of a video window contain the actual highlight action.
 """
 
-import asyncio
 import logging
 import os
 import subprocess
@@ -15,7 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from ...llm import GeminiAgent
-from .prompt import TRIM_HIGHLIGHT_PROMPT, TRIM_HIGHLIGHT_TOOL
+from .prompt import (
+    TRIM_HIGHLIGHT_PROMPT,
+    TRIM_HIGHLIGHT_PROMPT_TEMPLATE,
+    TRIM_HIGHLIGHT_TOOL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +70,9 @@ def _concatenate_chunks(chunks: list[bytes]) -> bytes:
             "0",
             "-i",
             str(concat_list),
-            "-c",
+            "-c:v",
+            "copy",
+            "-c:a",
             "copy",
             str(output_file),
         ]
@@ -98,30 +103,6 @@ def _concatenate_chunks(chunks: list[bytes]) -> bytes:
             pass
 
 
-def _run_async(coro: Any) -> Any:
-    """
-    Run async function in sync context.
-
-    Args:
-        coro: Coroutine to run
-
-    Returns:
-        Result from coroutine
-    """
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        # If we're already in an async context, create a new event loop
-        # This is a workaround for running async code from sync pipeline
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        # Run in the current event loop
-        return loop.run_until_complete(coro)
-
-
 class HighlightTrimmer:
     """Trims highlight videos to relevant portions using LLM analysis."""
 
@@ -141,6 +122,9 @@ class HighlightTrimmer:
         """
         Trim a video window to the actual highlight portions.
 
+        Uses multi-video approach: sends each chunk as a separate video to Gemini
+        so the LLM can clearly identify chunk boundaries.
+
         Args:
             window_chunks: List of video chunks
             metadata: Window metadata
@@ -148,79 +132,100 @@ class HighlightTrimmer:
         Returns:
             Tuple of (trimmed_video_data, updated_metadata)
         """
+        temp_files = []
         try:
-            # Concatenate all chunks for analysis
-            full_window_video = _concatenate_chunks(window_chunks)
+            # Create separate temp files for each chunk
+            chunk_inputs = []
+            for i, chunk in enumerate(window_chunks):
+                with tempfile.NamedTemporaryFile(
+                    suffix=f"_chunk{i + 1}.mp4", delete=False
+                ) as temp_file:
+                    temp_file.write(chunk)
+                    temp_path = temp_file.name
+                    temp_files.append(temp_path)
 
-            # Save video to temp file for Gemini
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
-                temp_file.write(full_window_video)
-                temp_path = temp_file.name
+                # Process each chunk as a video input
+                from ...llm import ModalityType
 
-            try:
-                # Ask Gemini which chunks to keep using function calling
-                response = await self.agent.generate_from_video(
-                    video_input=temp_path,
-                    prompt=self.prompt,
-                    tools=[TRIM_HIGHLIGHT_TOOL],
+                chunk_input = self.agent.process_input(temp_path, ModalityType.VIDEO)
+                chunk_inputs.append(chunk_input)
+
+            # Build prompt with detection context if available
+            detection_context = ""
+            if "detection_reason" in metadata:
+                confidence = metadata.get("detection_confidence", "unknown")
+                reason = metadata.get("detection_reason", "")
+                detection_context = f"\nDetection Analysis:\n- Confidence: {confidence}\n- Reason: {reason}\n"
+
+            prompt_text = TRIM_HIGHLIGHT_PROMPT_TEMPLATE.format(
+                detection_context=detection_context
+            )
+
+            # Add text prompt as the last input
+            text_input = self.agent.process_input(prompt_text, ModalityType.TEXT)
+
+            # Combine all inputs: chunks first, then prompt
+            all_inputs = chunk_inputs + [text_input]
+
+            # Ask Gemini which chunks to keep using function calling
+            # Using generate() directly to send multiple videos
+            output = await self.agent.generate(
+                all_inputs,
+                output_modality=ModalityType.TEXT,
+                tools=[TRIM_HIGHLIGHT_TOOL],
+            )
+
+            # Process the output to get the response data
+            response = output.data if hasattr(output, "data") else output
+
+            logger.info(f"Trim response: {response}")
+
+            # Extract function call response
+            if (
+                isinstance(response, dict)
+                and response.get("name") == "report_trim_segments"
+            ):
+                args = response.get("args", {})
+                start_chunk = int(args.get("start_segment", 1))
+                end_chunk = int(args.get("end_segment", 9))
+                reasoning = args.get("reasoning", "")
+
+                # Validate and fix range if needed
+                start_chunk = max(1, min(start_chunk, 9))
+                end_chunk = max(1, min(end_chunk, 9))
+
+                if start_chunk > end_chunk:
+                    start_chunk, end_chunk = end_chunk, start_chunk
+
+                # Convert to 0-indexed
+                start_idx = start_chunk - 1
+                end_idx = end_chunk  # end_chunk is inclusive, so we don't subtract 1
+
+                logger.info(
+                    f"Trimming to chunks {start_chunk}-{end_chunk} "
+                    f"(indices {start_idx}:{end_idx}). Reasoning: {reasoning}"
                 )
 
-                logger.info(f"Trim response: {response}")
+                # Extract and concatenate the selected chunks
+                selected_chunks = window_chunks[start_idx:end_idx]
+                trimmed_video = _concatenate_chunks(selected_chunks)
 
-                # Extract function call response
-                if (
-                    isinstance(response, dict)
-                    and response.get("name") == "report_trim_segments"
-                ):
-                    args = response.get("args", {})
-                    start_chunk = int(args.get("start_segment", 1))
-                    end_chunk = int(args.get("end_segment", 7))
-                    reasoning = args.get("reasoning", "")
+                metadata["trim_method"] = "gemini_multi_video"
+                metadata["trimmed_chunk_start"] = start_chunk
+                metadata["trimmed_chunk_end"] = end_chunk
+                metadata["trimmed_chunk_count"] = len(selected_chunks)
+                metadata["trim_reasoning"] = reasoning
 
-                    # Validate and fix range if needed
-                    start_chunk = max(1, min(start_chunk, 7))
-                    end_chunk = max(1, min(end_chunk, 7))
-
-                    if start_chunk > end_chunk:
-                        start_chunk, end_chunk = end_chunk, start_chunk
-
-                    # Convert to 0-indexed
-                    start_idx = start_chunk - 1
-                    end_idx = (
-                        end_chunk  # end_chunk is inclusive, so we don't subtract 1
-                    )
-
-                    logger.info(
-                        f"Trimming to chunks {start_chunk}-{end_chunk} "
-                        f"(indices {start_idx}:{end_idx}). Reasoning: {reasoning}"
-                    )
-
-                    # Extract and concatenate the selected chunks
-                    selected_chunks = window_chunks[start_idx:end_idx]
-                    trimmed_video = _concatenate_chunks(selected_chunks)
-
-                    metadata["trim_method"] = "gemini_function_calling"
-                    metadata["trimmed_chunk_start"] = start_chunk
-                    metadata["trimmed_chunk_end"] = end_chunk
-                    metadata["trimmed_chunk_count"] = len(selected_chunks)
-                    metadata["trim_reasoning"] = reasoning
-
-                    return trimmed_video, metadata
-                else:
-                    # Fallback: use all chunks
-                    logger.warning(
-                        f"Unexpected response format: {response}. Using all chunks."
-                    )
-                    metadata["trim_method"] = "function_call_fallback"
-                    metadata["trimmed_chunk_count"] = len(window_chunks)
-                    return full_window_video, metadata
-
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(temp_path)
-                except Exception as e:
-                    logger.warning(f"Failed to delete temp file {temp_path}: {e}")
+                return trimmed_video, metadata
+            else:
+                # Fallback: use all chunks
+                logger.warning(
+                    f"Unexpected response format: {response}. Using all chunks."
+                )
+                metadata["trim_method"] = "function_call_fallback"
+                metadata["trimmed_chunk_count"] = len(window_chunks)
+                full_window_video = _concatenate_chunks(window_chunks)
+                return full_window_video, metadata
 
         except Exception as e:
             logger.error(f"Error in trim_highlight: {e}", exc_info=True)
@@ -230,6 +235,13 @@ class HighlightTrimmer:
             metadata["trim_error"] = str(e)
             metadata["trimmed_chunk_count"] = len(window_chunks)
             return trimmed_video, metadata
+        finally:
+            # Clean up all temp files
+            for temp_path in temp_files:
+                try:
+                    os.unlink(temp_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete temp file {temp_path}: {e}")
 
 
 # Global trimmer instance (lazily initialized)
@@ -244,7 +256,7 @@ def _get_trimmer() -> HighlightTrimmer:
     return _trimmer
 
 
-def trim_highlight_step(
+async def trim_highlight_step(
     window_chunks: list[bytes], metadata: dict[str, Any]
 ) -> tuple[bytes, dict[str, Any]]:
     """
@@ -254,7 +266,7 @@ def trim_highlight_step(
     concatenates only those chunks.
 
     Args:
-        window_chunks: List of 7 video chunks (2 seconds each)
+        window_chunks: List of 9 video chunks (4 seconds each)
         metadata: Window metadata
 
     Returns:
@@ -263,7 +275,7 @@ def trim_highlight_step(
     logger.info("Running trim_highlight_step with Gemini LLM")
 
     trimmer = _get_trimmer()
-    result: tuple[bytes, dict[str, Any]] = _run_async(
-        trimmer.trim_highlight(window_chunks, metadata)
+    result: tuple[bytes, dict[str, Any]] = await trimmer.trim_highlight(
+        window_chunks, metadata
     )
     return result

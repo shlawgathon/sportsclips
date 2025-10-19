@@ -4,20 +4,31 @@ Prompts and tool schemas for highlight trimming.
 
 from google.genai import types
 
-TRIM_HIGHLIGHT_PROMPT = """Analyze this video clip which contains a highlight moment. Your task is to identify the exact portion of the video that should be kept.
+TRIM_HIGHLIGHT_PROMPT_TEMPLATE = """I'm showing you 9 separate video segments (Chunk 1 through Chunk 9) in order, each exactly 4 seconds long (total 36 seconds of footage).
 
-The video is divided into 7 segments of 2 seconds each (total 14 seconds):
-- Segment 1: 0-2s
-- Segment 2: 2-4s
-- Segment 3: 4-6s
-- Segment 4: 6-8s
-- Segment 5: 8-10s
-- Segment 6: 10-12s
-- Segment 7: 12-14s
+Each video you see corresponds to one chunk:
+- Chunk 1: 0-4s (first video)
+- Chunk 2: 4-8s (second video)
+- Chunk 3: 8-12s (third video)
+- Chunk 4: 12-16s (fourth video)
+- Chunk 5: 16-20s (fifth video)
+- Chunk 6: 20-24s (sixth video)
+- Chunk 7: 24-28s (seventh video)
+- Chunk 8: 28-32s (eighth video)
+- Chunk 9: 32-36s (ninth video)
 
-Identify which consecutive segments contain the actual highlight action. Include a brief buildup and follow-through, but exclude unnecessary footage before or after.
+{detection_context}
+
+Your task: Identify which consecutive chunks contain the actual highlight action.
+- Include brief buildup (typically 1-2 chunks before the peak action)
+- Include follow-through (typically 1 chunk after)
+- Exclude dead time before or after the action
+- Be conservative: when in doubt, include the chunk
 
 Use the report_trim_segments function to specify which segments to keep."""
+
+# Default prompt without detection context
+TRIM_HIGHLIGHT_PROMPT = TRIM_HIGHLIGHT_PROMPT_TEMPLATE.format(detection_context="")
 
 # Tool/function declaration for highlight trimming
 TRIM_HIGHLIGHT_TOOL = types.Tool(
@@ -30,11 +41,11 @@ TRIM_HIGHLIGHT_TOOL = types.Tool(
                 properties={
                     "start_segment": types.Schema(
                         type=types.Type.INTEGER,
-                        description="Starting segment number (1-7, inclusive)",
+                        description="Starting segment number (1-9, inclusive)",
                     ),
                     "end_segment": types.Schema(
                         type=types.Type.INTEGER,
-                        description="Ending segment number (1-7, inclusive)",
+                        description="Ending segment number (1-9, inclusive)",
                     ),
                     "reasoning": types.Schema(
                         type=types.Type.STRING,

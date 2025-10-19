@@ -5,7 +5,6 @@ This module provides a pipeline step that uses the Gemini agent to generate
 engaging titles and descriptions for highlight videos.
 """
 
-import asyncio
 import logging
 import os
 import tempfile
@@ -15,30 +14,6 @@ from ...llm import GeminiAgent
 from .prompt import CAPTION_HIGHLIGHT_PROMPT, CAPTION_HIGHLIGHT_TOOL
 
 logger = logging.getLogger(__name__)
-
-
-def _run_async(coro: Any) -> Any:
-    """
-    Run async function in sync context.
-
-    Args:
-        coro: Coroutine to run
-
-    Returns:
-        Result from coroutine
-    """
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        # If we're already in an async context, create a new event loop
-        # This is a workaround for running async code from sync pipeline
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        # Run in the current event loop
-        return loop.run_until_complete(coro)
 
 
 class HighlightCaptioner:
@@ -67,6 +42,9 @@ class HighlightCaptioner:
         Returns:
             Tuple of (title, description, updated_metadata)
         """
+        max_retries = 3
+        last_error = None
+
         try:
             # Save video to temp file for Gemini
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
@@ -74,65 +52,89 @@ class HighlightCaptioner:
                 temp_path = temp_file.name
 
             try:
-                # Generate captions with Gemini using function calling
-                response = await self.agent.generate_from_video(
-                    video_input=temp_path,
-                    prompt=self.prompt,
-                    tools=[CAPTION_HIGHLIGHT_TOOL],
+                # Retry up to 3 times to get a valid caption
+                for attempt in range(max_retries):
+                    try:
+                        logger.info(
+                            f"Caption generation attempt {attempt + 1}/{max_retries}"
+                        )
+
+                        # Generate captions with Gemini using function calling
+                        response = await self.agent.generate_from_video(
+                            video_input=temp_path,
+                            prompt=self.prompt,
+                            tools=[CAPTION_HIGHLIGHT_TOOL],
+                        )
+
+                        logger.info(
+                            f"Caption response (attempt {attempt + 1}): {response}"
+                        )
+
+                        # Extract function call response
+                        if (
+                            isinstance(response, dict)
+                            and response.get("name") == "report_highlight_caption"
+                        ):
+                            args = response.get("args", {})
+                            title = args.get("title", "")
+                            description = args.get("description", "")
+                            key_action = args.get("key_action", "")
+
+                            # Validate that we got both title and description
+                            if title and description:
+                                logger.info(f"Generated title: {title}")
+                                logger.info(f"Generated description: {description}")
+                                if key_action:
+                                    logger.info(f"Key action: {key_action}")
+
+                                metadata["caption_method"] = "gemini_function_calling"
+                                metadata["key_action"] = key_action
+                                metadata["caption_attempts"] = attempt + 1
+
+                                return title, description, metadata
+                            else:
+                                # Missing required fields, retry
+                                logger.warning(
+                                    f"Attempt {attempt + 1}: Missing required fields "
+                                    f"(title={bool(title)}, description={bool(description)}). "
+                                    f"Will retry..."
+                                )
+                                last_error = (
+                                    "Missing title or description in function call"
+                                )
+                                continue
+                        else:
+                            # Unexpected response format, retry
+                            logger.warning(
+                                f"Attempt {attempt + 1}: Unexpected response format: {response}. "
+                                f"Will retry..."
+                            )
+                            last_error = f"Unexpected response format: {response}"
+                            continue
+
+                    except Exception as e:
+                        logger.warning(
+                            f"Attempt {attempt + 1} failed with error: {e}. "
+                            f"Will retry..."
+                            if attempt < max_retries - 1
+                            else f"Final attempt failed: {e}"
+                        )
+                        last_error = str(e)
+                        continue
+
+                # All retries exhausted, use fallback
+                logger.error(
+                    f"All {max_retries} attempts failed. Last error: {last_error}. "
+                    f"Using fallback captions."
                 )
-
-                logger.info(f"Caption response: {response}")
-
-                # Extract function call response
-                if (
-                    isinstance(response, dict)
-                    and response.get("name") == "report_highlight_caption"
-                ):
-                    args = response.get("args", {})
-                    title = args.get("title", "")
-                    description = args.get("description", "")
-                    key_action = args.get("key_action", "")
-
-                    # Fallback if title or description missing
-                    if not title:
-                        start_time = metadata.get("window_start_time", 0)
-                        title = f"Highlight at {start_time}s"
-                        logger.warning(
-                            "Title missing from function call, using fallback"
-                        )
-
-                    if not description:
-                        start_time = metadata.get("window_start_time", 0)
-                        end_time = metadata.get("window_end_time", 0)
-                        description = (
-                            f"Highlight detected from {start_time}s to {end_time}s"
-                        )
-                        logger.warning(
-                            "Description missing from function call, using fallback"
-                        )
-
-                    logger.info(f"Generated title: {title}")
-                    logger.info(f"Generated description: {description}")
-                    if key_action:
-                        logger.info(f"Key action: {key_action}")
-
-                    metadata["caption_method"] = "gemini_function_calling"
-                    metadata["key_action"] = key_action
-
-                    return title, description, metadata
-                else:
-                    # Fallback if function calling didn't work
-                    logger.warning(
-                        f"Unexpected response format: {response}. Using fallback."
-                    )
-                    start_time = metadata.get("window_start_time", 0)
-                    end_time = metadata.get("window_end_time", 0)
-                    title = f"Highlight at {start_time}s"
-                    description = (
-                        f"Highlight detected from {start_time}s to {end_time}s"
-                    )
-                    metadata["caption_method"] = "function_call_fallback"
-                    return title, description, metadata
+                start_time = metadata.get("window_start_time", 0)
+                end_time = metadata.get("window_end_time", 0)
+                title = f"Highlight at {start_time}s"
+                description = f"Highlight detected from {start_time}s to {end_time}s"
+                metadata["caption_method"] = "retry_exhausted_fallback"
+                metadata["caption_attempts"] = max_retries
+                metadata["last_error"] = last_error
+                return title, description, metadata
 
             finally:
                 # Clean up temp file
@@ -168,7 +170,7 @@ def _get_captioner() -> HighlightCaptioner:
     return _captioner
 
 
-def caption_highlight_step(
+async def caption_highlight_step(
     video_data: bytes, metadata: dict[str, Any]
 ) -> tuple[str, str, dict[str, Any]]:
     """
@@ -187,7 +189,7 @@ def caption_highlight_step(
     logger.info("Running caption_highlight_step with Gemini LLM")
 
     captioner = _get_captioner()
-    result: tuple[str, str, dict[str, Any]] = _run_async(
-        captioner.generate_caption(video_data, metadata)
+    result: tuple[str, str, dict[str, Any]] = await captioner.generate_caption(
+        video_data, metadata
     )
     return result

@@ -125,6 +125,7 @@ fun Route.liveRoutes() {
                 timestampEpochSec = nowSec
             )
             LiveHub.addComment(clipId, comment)
+            try { LiveCommentsWSHub.broadcastComment(comment) } catch (_: Exception) {}
             call.respond(comment)
         }
 
@@ -141,6 +142,7 @@ fun Route.liveRoutes() {
             )
             val hb = call.receive<ViewerHeartbeatRequest>()
             val count = LiveHub.heartbeat(clipId, hb.viewerId)
+            try { LiveCommentsWSHub.broadcastViewerCount(clipId) } catch (_: Exception) {}
             call.respond(ViewerInfoResponse(clipId, count))
         }
     }

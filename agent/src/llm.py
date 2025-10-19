@@ -5,16 +5,23 @@ This module provides a flexible agent implementation that supports various input
 and output modalities (text, image, video, audio) through a hook-based system.
 """
 
+import asyncio
+import io
 import os
+import subprocess
+import wave
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 from urllib.request import urlopen
 
 from google import genai
 from google.genai import types
+from PIL import Image
 
 
 class ModalityType(Enum):
@@ -503,6 +510,10 @@ class GeminiAgent:
                     and candidate.content.parts
                 ):
                     for part in candidate.content.parts:
+                        # Skip thinking parts (thought=True) - only process actual content
+                        if hasattr(part, "thought") and part.thought:
+                            continue
+
                         if hasattr(part, "function_call") and part.function_call:
                             # Return function call data
                             function_call = part.function_call
@@ -710,3 +721,396 @@ class GeminiAgent:
 
         output = await self.generate(inputs, output_modality=output_modality)
         return self.process_output(output)
+
+
+class GeminiLiveClient:
+    """
+    Simplified Live API client for real-time audio streaming with Gemini.
+
+    This client provides a straightforward interface for sending video frames
+    and receiving audio chunks, inspired by the Google Cloud DevRel ping-pong example.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model_name: str = "gemini-2.0-flash-exp",
+        system_instruction: Optional[str] = None,
+    ):
+        """
+        Initialize the Live API client.
+
+        Args:
+            api_key: Google API key for Gemini (optional, can use env var)
+            model_name: Name of the Gemini model to use
+            system_instruction: Optional system instruction for the model behavior
+        """
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        self.model_name = model_name
+        self.system_instruction = (
+            system_instruction
+            or "You are a helpful sports commentator providing live audio commentary."
+        )
+        self._client: Optional[genai.Client] = None
+        self._session: Any = None
+        self._connection_context: Optional[AbstractAsyncContextManager[Any]] = None
+
+        if self.api_key:
+            self._client = genai.Client(api_key=self.api_key)
+
+    async def connect(self) -> "GeminiLiveClient":
+        """
+        Establish WebSocket connection to the Live API.
+
+        Returns:
+            Self for context manager usage
+
+        Raises:
+            ValueError: If client is not initialized
+        """
+        if not self._client:
+            raise ValueError("Client not initialized. Please provide an API key.")
+
+        # Build configuration with context window compression
+        config = types.LiveConnectConfig(
+            responseModalities=[types.Modality.AUDIO],
+            systemInstruction=self.system_instruction,
+            contextWindowCompression=types.ContextWindowCompressionConfig(
+                trigger_tokens=8000,  # Trigger compression at 8k tokens
+                sliding_window=types.SlidingWindow(
+                    targetTokens=4000  # Keep last 4k tokens when compressing
+                ),
+            ),
+        )
+
+        # Create connection context and enter it
+        self._connection_context = self._client.aio.live.connect(
+            model=self.model_name, config=config
+        )
+        self._session = await self._connection_context.__aenter__()
+
+        return self
+
+    async def disconnect(self) -> None:
+        """Close the WebSocket connection."""
+        if self._connection_context and self._session:
+            await self._connection_context.__aexit__(None, None, None)
+            self._session = None
+            self._connection_context = None
+
+    def is_connected(self) -> bool:
+        """Check if the client is currently connected."""
+        return self._session is not None
+
+    async def __aenter__(self) -> "GeminiLiveClient":
+        """Context manager entry."""
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Context manager exit."""
+        await self.disconnect()
+
+    async def send(self, prompt: str, end_of_turn: bool = True) -> None:
+        """
+        Send a text prompt to the model.
+
+        Args:
+            prompt: Text prompt or instruction
+            end_of_turn: Whether to signal end of turn (default: True)
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        await self._session.send(input=prompt, end_of_turn=end_of_turn)
+
+    async def send_frame(self, frame: Union[Image.Image, bytes]) -> None:
+        """
+        Send a single video frame to the model.
+
+        Args:
+            frame: PIL Image or image bytes
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        # Convert bytes to PIL Image if needed
+        if isinstance(frame, bytes):
+            frame = Image.open(io.BytesIO(frame))
+
+        # Send frame with a small delay to avoid overwhelming the API
+        await self._session.send_realtime_input(video=frame)
+        await asyncio.sleep(0.1)  # Small delay to prevent overwhelming connection
+
+    async def receive_audio_chunks(self) -> AsyncIterator[bytes]:
+        """
+        Receive audio chunks from the model as an async generator.
+
+        Yields:
+            bytes: Audio data chunks in PCM format
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        logger.info("[GeminiLiveClient] Starting to receive audio chunks...")
+        turn = self._session.receive()
+        logger.info("[GeminiLiveClient] Created receive turn, waiting for responses...")
+
+        response_count = 0
+        async for response in turn:
+            response_count += 1
+            logger.info(f"[GeminiLiveClient] Received response #{response_count}, type: {type(response).__name__}")
+
+            # Extract audio data from response
+            if hasattr(response, "data") and response.data is not None:
+                logger.info(f"[GeminiLiveClient] Found audio data (size: {len(response.data)} bytes)")
+                yield response.data
+            elif hasattr(response, "server_content"):
+                logger.info("[GeminiLiveClient] Response has server_content")
+                server_content = response.server_content
+                if hasattr(server_content, "model_turn"):
+                    logger.info("[GeminiLiveClient] server_content has model_turn")
+                    model_turn = server_content.model_turn
+                    if hasattr(model_turn, "parts"):
+                        logger.info(f"[GeminiLiveClient] model_turn has {len(model_turn.parts)} parts")
+                        for part in model_turn.parts:
+                            if hasattr(part, "inline_data") and part.inline_data:
+                                logger.info(f"[GeminiLiveClient] Found inline_data (size: {len(part.inline_data.data)} bytes)")
+                                yield part.inline_data.data
+            else:
+                logger.info(f"[GeminiLiveClient] Response has no audio data. Attributes: {dir(response)}")
+
+        logger.info(f"[GeminiLiveClient] receive_audio_chunks() completed after {response_count} responses")
+
+    async def send_audio_chunk(
+        self, audio_data: bytes, sample_rate: int = 16000
+    ) -> None:
+        """
+        Send audio chunk to the model.
+
+        Args:
+            audio_data: Audio bytes in 16-bit PCM format
+            sample_rate: Sample rate in Hz (default: 16000)
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        await self._session.send_realtime_input(
+            audio=types.Blob(data=audio_data, mime_type=f"audio/pcm;rate={sample_rate}")
+        )
+
+    async def send_text(self, text: str) -> None:
+        """
+        Send text input to the model.
+
+        Args:
+            text: Text prompt or instruction
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        await self._session.send_realtime_input(text=text)
+
+    async def receive_audio_stream(self) -> AsyncIterator[bytes]:
+        """
+        Receive streaming audio output from the model.
+
+        Yields:
+            bytes: Audio data chunks in 16-bit PCM format at 24kHz
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        async for response in self._session.receive():
+            # Check if response has data attribute directly
+            if hasattr(response, "data") and response.data is not None:
+                yield response.data
+            # Also check for server_content structure
+            elif hasattr(response, "server_content"):
+                server_content = response.server_content
+                if hasattr(server_content, "model_turn"):
+                    model_turn = server_content.model_turn
+                    if hasattr(model_turn, "parts"):
+                        for part in model_turn.parts:
+                            if hasattr(part, "inline_data") and part.inline_data:
+                                # Yield the audio data
+                                yield part.inline_data.data
+
+    def _extract_frames_from_video(
+        self, video_path: Union[str, Path], fps: float = 1.0
+    ) -> list[Image.Image]:
+        """
+        Extract frames from video file using ffmpeg.
+
+        Args:
+            video_path: Path to video file
+            fps: Frames per second to extract (default: 1.0 to match Live API processing)
+
+        Returns:
+            list[Image.Image]: List of PIL Images representing frames
+
+        Raises:
+            FileNotFoundError: If video file does not exist
+            RuntimeError: If ffmpeg fails to extract frames
+        """
+        import tempfile
+
+        video_path_obj = Path(video_path)
+
+        # Check if file exists
+        if not video_path_obj.exists():
+            raise FileNotFoundError(f"Video file not found: {video_path}")
+
+        video_path = str(video_path)
+        frames = []
+
+        # Create temporary directory for frames
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_pattern = os.path.join(tmpdir, "frame_%04d.jpg")
+
+            # Use ffmpeg to extract frames
+            cmd = [
+                "ffmpeg",
+                "-i",
+                video_path,
+                "-vf",
+                f"fps={fps}",
+                "-q:v",
+                "2",  # High quality JPEG
+                output_pattern,
+            ]
+
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
+            except subprocess.CalledProcessError as e:
+                raise RuntimeError(f"Failed to extract frames: {e.stderr}")
+
+            # Load extracted frames
+            frame_files = sorted(Path(tmpdir).glob("frame_*.jpg"))
+            for frame_file in frame_files:
+                frames.append(Image.open(frame_file))
+
+        return frames
+
+    async def stream_video_with_audio_output(
+        self,
+        video_source: Union[str, Path, AsyncIterator[Image.Image]],
+        on_audio_chunk: Optional[Callable[[bytes], None]] = None,
+        prompt: Optional[str] = None,
+        fps: float = 1.0,
+    ) -> bytes:
+        """
+        Stream video input and receive audio commentary output.
+
+        Args:
+            video_source: Path to video file or async iterator of frame images
+            on_audio_chunk: Optional callback for each audio chunk received
+            prompt: Optional text prompt to guide the commentary
+            fps: Frames per second to extract from video (default: 1.0)
+
+        Returns:
+            bytes: Complete audio output as WAV file bytes
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        # Send initial prompt if provided
+        if prompt:
+            await self.send_text(prompt)
+
+        # Handle video source
+        if isinstance(video_source, (str, Path)):
+            # Extract frames from video file
+            frames = self._extract_frames_from_video(video_source, fps=fps)
+
+            # Send each frame
+            for frame in frames:
+                await self.send_video_frame(frame)
+                # Small delay between frames to avoid overwhelming the API
+                await asyncio.sleep(0.1)
+        else:
+            # Stream frame images
+            async for frame in video_source:
+                await self.send_video_frame(frame)
+                await asyncio.sleep(0.1)
+
+        # Collect audio output
+        audio_chunks = []
+        async for audio_chunk in self.receive_audio_stream():
+            audio_chunks.append(audio_chunk)
+            if on_audio_chunk:
+                on_audio_chunk(audio_chunk)
+
+        # Convert to WAV format
+        return self._create_wav_from_pcm(b"".join(audio_chunks))
+
+    def _create_wav_from_pcm(
+        self, pcm_data: bytes, sample_rate: int = 24000, channels: int = 1
+    ) -> bytes:
+        """
+        Convert raw PCM audio to WAV format.
+
+        Args:
+            pcm_data: Raw PCM audio bytes
+            sample_rate: Sample rate in Hz (default: 24000 for output)
+            channels: Number of audio channels (default: 1 for mono)
+
+        Returns:
+            bytes: WAV file bytes
+        """
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, "wb") as wf:
+            wf.setnchannels(channels)
+            wf.setsampwidth(2)  # 16-bit
+            wf.setframerate(sample_rate)
+            wf.writeframes(pcm_data)
+
+        wav_buffer.seek(0)
+        return wav_buffer.read()
+
+    async def generate_audio_from_video(
+        self, video_path: Union[str, Path], prompt: str
+    ) -> bytes:
+        """
+        Convenience method to generate audio commentary from a video file.
+
+        Args:
+            video_path: Path to the video file
+            prompt: Text prompt describing what kind of commentary to generate
+
+        Returns:
+            bytes: WAV audio file bytes
+
+        Raises:
+            ValueError: If session is not connected
+        """
+        if not self._session:
+            raise ValueError("Session not connected. Call connect() first.")
+
+        return await self.stream_video_with_audio_output(
+            video_source=video_path, prompt=prompt
+        )

@@ -468,6 +468,78 @@ class TestStreamAndChunkVideo:
             assert len(chunks) == 3
             mock_stream_live.assert_called_once()
 
+    def test_live_selector_override_for_specific_youtube_url(self):
+        """Ensure live-safe selector is used for problematic VOD selector on live URL.
+
+        Reproduces the case where format_selector was "best[ext=mp4]/best" for a live stream
+        (https://www.youtube.com/watch?v=kWIWnFbNMF4), which is not available and should be
+        overridden to a live-friendly selector.
+        """
+        problem_url = "https://www.youtube.com/watch?v=kWIWnFbNMF4"
+
+        with (
+            patch("subprocess.Popen") as mock_popen,
+            patch("tempfile.mkdtemp") as mock_mkdtemp,
+            patch("pathlib.Path.mkdir"),
+            patch("shutil.rmtree"),
+            patch("pathlib.Path.glob") as mock_glob,
+            patch("builtins.open", mock_open(read_data=b"chunk_data")),
+            patch("time.sleep", lambda *_args, **_kwargs: None),
+        ):
+            mock_mkdtemp.return_value = "/tmp/test_video"
+
+            # Prepare yt-dlp and ffmpeg mock processes
+            mock_ytdlp = MagicMock()
+            mock_ytdlp.stdout = MagicMock()
+            mock_ytdlp.stderr = MagicMock()
+            mock_ytdlp.poll.side_effect = [None, 0]
+
+            mock_ffmpeg = MagicMock()
+            mock_ffmpeg.stdout = MagicMock()
+            mock_ffmpeg.stderr = MagicMock()
+            mock_ffmpeg.poll.side_effect = [None, 0]
+
+            # Capture Popen calls and return mocks in order (yt-dlp, ffmpeg)
+            popen_calls = []
+
+            def popen_side_effect(cmd, *args, **kwargs):
+                popen_calls.append(cmd)
+                return mock_ytdlp if len(popen_calls) == 1 else mock_ffmpeg
+
+            mock_popen.side_effect = popen_side_effect
+
+            # Simulate one complete chunk file present across iterations
+            chunk_path = Path("/tmp/test_video/chunk_00000.mp4")
+            mock_glob.side_effect = [[chunk_path], [chunk_path], [chunk_path]]
+
+            # Run streaming with VOD-oriented selector but live=True
+            chunks = list(
+                stream_and_chunk_video(
+                    problem_url,
+                    chunk_duration=2,
+                    format_selector="best[ext=mp4]/best",
+                    is_live=True,
+                )
+            )
+
+            # Verify we yielded data
+            assert len(chunks) >= 1
+
+            # Verify yt-dlp command used the live-safe selector
+            assert len(popen_calls) >= 1
+            ytdlp_cmd = popen_calls[0]
+
+            # Ensure --live-from-start is present for live streams
+            assert "--live-from-start" in ytdlp_cmd
+
+            # Find the format value following -f
+            assert "-f" in ytdlp_cmd
+            f_idx = ytdlp_cmd.index("-f")
+            selected_format = ytdlp_cmd[f_idx + 1]
+            assert selected_format == "bestvideo+bestaudio/best", (
+                "Live-safe format selector should override VOD-only selector"
+            )
+
     def test_stream_and_chunk_video_ffmpeg_error(self):
         """Test handling of ffmpeg errors in non-live mode."""
         test_url = "https://youtube.com/watch?v=test123"
@@ -924,6 +996,235 @@ class TestMassiveConcurrentDownloads:
             assert result["total_bytes"] > 0, f"Stream {thread_id} should have data"
 
         print(f"✅ All {len(results)} successful streams completed without conflicts!")
+
+
+class TestLiveStreamAudioDebug:
+    """Debug tests for live stream audio issues."""
+
+    def test_live_stream_audio_output_integration(self):
+        """
+        Integration test for specific live stream to debug audio output.
+
+        Tests: https://www.youtube.com/watch?v=3tb36w-RJYU
+
+        This test will:
+        1. Stream from the live edge (no --live-from-start)
+        2. Download HLS containers directly
+        3. Save the first chunk to examine if audio is present
+        4. Use ffprobe to check audio streams in the downloaded chunk
+        """
+        import json
+
+        test_url = "https://www.youtube.com/watch?v=3tb36w-RJYU"
+
+        # First, verify it's a live stream
+        try:
+            is_live = is_live_stream(test_url)
+            print(f"\n🔍 Stream status: {'LIVE' if is_live else 'NOT LIVE'}")
+        except Exception as e:
+            pytest.skip(f"Could not check stream status: {e}")
+
+        # Save to video_output directory in repo for manual testing
+        output_dir = Path(__file__).parent.parent / "video_output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        test_output = output_dir / "live_stream_debug.mp4"
+
+        try:
+            print(
+                "\n📡 Starting live stream from current edge (no --live-from-start)..."
+            )
+            print(f"   URL: {test_url}")
+            print(f"   Output file: {test_output}")
+
+            chunk_count = 0
+            total_bytes = 0
+
+            # Stream chunks and save them all to create a playable file
+            with open(test_output, "wb") as f:
+                for chunk in stream_video_chunks(
+                    test_url,
+                    chunk_size=256 * 1024,  # 256KB chunks
+                    live_from_start=False,  # Stream from live edge
+                ):
+                    chunk_count += 1
+                    total_bytes += len(chunk)
+                    f.write(chunk)
+
+                    print(
+                        f"   Chunk {chunk_count}: {len(chunk):,} bytes (total: {total_bytes:,})"
+                    )
+
+                    # Get 10 chunks for testing (enough to verify audio works)
+                    if chunk_count >= 10:
+                        print(f"   Stopping after {chunk_count} chunks for testing")
+                        break
+
+            assert chunk_count > 0, "Should receive at least one chunk"
+            assert total_bytes > 0, "Should receive some data"
+            print(f"\n📊 Downloaded {chunk_count} chunks, {total_bytes:,} bytes total")
+            print(f"💾 Saved to: {test_output}")
+
+            # Now analyze the file with ffprobe to check for audio
+            if test_output.exists():
+                print("\n🔬 Analyzing file with ffprobe...")
+                try:
+                    ffprobe_cmd = [
+                        "ffprobe",
+                        "-v",
+                        "quiet",
+                        "-print_format",
+                        "json",
+                        "-show_streams",
+                        "-show_format",
+                        str(test_output),
+                    ]
+
+                    result = subprocess.run(
+                        ffprobe_cmd, capture_output=True, text=True, timeout=10
+                    )
+
+                    if result.returncode == 0:
+                        probe_data = json.loads(result.stdout)
+                        streams = probe_data.get("streams", [])
+
+                        print(f"\n📺 Found {len(streams)} stream(s) in file:")
+                        video_streams = []
+                        audio_streams = []
+
+                        for i, stream in enumerate(streams):
+                            codec_type = stream.get("codec_type", "unknown")
+                            codec_name = stream.get("codec_name", "unknown")
+
+                            if codec_type == "video":
+                                video_streams.append(stream)
+                                width = stream.get("width", "?")
+                                height = stream.get("height", "?")
+                                print(
+                                    f"   Stream {i}: VIDEO - {codec_name} {width}x{height}"
+                                )
+                            elif codec_type == "audio":
+                                audio_streams.append(stream)
+                                sample_rate = stream.get("sample_rate", "?")
+                                channels = stream.get("channels", "?")
+                                print(
+                                    f"   Stream {i}: AUDIO - {codec_name} {sample_rate}Hz {channels}ch"
+                                )
+                            else:
+                                print(
+                                    f"   Stream {i}: {codec_type.upper()} - {codec_name}"
+                                )
+
+                        # Check for audio presence
+                        print("\n🎵 Audio Analysis:")
+                        print(f"   Video streams: {len(video_streams)}")
+                        print(f"   Audio streams: {len(audio_streams)}")
+
+                        if len(audio_streams) == 0:
+                            print("   ⚠️  WARNING: NO AUDIO STREAMS FOUND!")
+                            print("   This confirms the audio output issue.")
+                        else:
+                            print("   ✅ Audio streams present")
+
+                        # Print full format info for debugging
+                        format_info = probe_data.get("format", {})
+                        print("\n📋 Format Info:")
+                        print(f"   Format: {format_info.get('format_name', '?')}")
+                        print(f"   Duration: {format_info.get('duration', '?')}s")
+                        print(f"   Bitrate: {format_info.get('bit_rate', '?')}")
+
+                    else:
+                        print(f"   ⚠️  ffprobe failed: {result.stderr}")
+
+                except FileNotFoundError:
+                    print("   ⚠️  ffprobe not found - install ffmpeg to analyze streams")
+                except Exception as e:
+                    print(f"   ⚠️  ffprobe error: {e}")
+
+        except Exception as e:
+            pytest.fail(f"Stream failed: {e}")
+
+    def test_live_stream_format_selection_debug(self):
+        """
+        Test different format selectors to find which one includes audio.
+
+        This test tries multiple format selectors to identify which works best
+        for getting both video and audio from the live stream.
+        """
+        test_url = "https://www.youtube.com/watch?v=3tb36w-RJYU"
+
+        # Test different format selectors
+        format_selectors = [
+            ("best", "Default best quality"),
+            (
+                "bestvideo+bestaudio/best",
+                "Best video + best audio (recommended for live)",
+            ),
+            ("best[ext=mp4]/best", "Best MP4 or fallback"),
+            ("96/95/94/93", "Specific HLS qualities"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for format_selector, description in format_selectors:
+                print(f"\n🧪 Testing format: {format_selector}")
+                print(f"   Description: {description}")
+
+                test_output = (
+                    Path(tmpdir) / f"test_{format_selector.replace('/', '_')}.mp4"
+                )
+
+                try:
+                    chunk_count = 0
+
+                    for chunk in stream_video_chunks(
+                        test_url,
+                        chunk_size=256 * 1024,
+                        format_selector=format_selector,
+                        live_from_start=False,
+                    ):
+                        chunk_count += 1
+
+                        # Save first chunk
+                        if chunk_count == 1:
+                            with open(test_output, "wb") as f:
+                                f.write(chunk)
+
+                        # Just get first chunk for quick testing
+                        if chunk_count >= 1:
+                            break
+
+                    if chunk_count > 0:
+                        print(f"   ✅ Downloaded {chunk_count} chunk(s)")
+
+                        # Quick check with ffprobe
+                        try:
+                            result = subprocess.run(
+                                [
+                                    "ffprobe",
+                                    "-v",
+                                    "quiet",
+                                    "-show_streams",
+                                    "-select_streams",
+                                    "a",
+                                    str(test_output),
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            )
+
+                            has_audio = "codec_type=audio" in result.stdout
+                            print(
+                                f"   Audio present: {'✅ YES' if has_audio else '❌ NO'}"
+                            )
+
+                        except Exception as e:
+                            print(f"   Could not check audio: {e}")
+                    else:
+                        print("   ❌ No chunks received")
+
+                except Exception as e:
+                    print(f"   ❌ Error: {e}")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Tests for the Flask WebSocket API."""
+"""Tests for the ASGI WebSocket API."""
 
 import base64
 import json
@@ -13,13 +13,13 @@ from src.api import (
     create_snippet_message,
     process_video_and_generate_snippets,
 )
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
 def client():
     """Create a test client for the Flask app."""
-    app.config["TESTING"] = True
-    with app.test_client() as client:
+    with TestClient(app) as client:
         yield client
 
 
@@ -99,7 +99,7 @@ class TestHealthEndpoint:
         response = client.get("/health")
         assert response.status_code == 200
 
-        data = json.loads(response.data)
+        data = response.json()
         assert data["status"] == "healthy"
 
 
