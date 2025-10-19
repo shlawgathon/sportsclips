@@ -97,6 +97,7 @@ def _pipeline_worker(video_url: str, is_live: bool, q: mp.Queue[str]) -> None:
                 create_snippet_message=create_snippet_message,
                 create_complete_message=create_complete_message,
                 create_error_message=create_error_message,
+                enable_live_commentary=True,
             )
 
         asyncio.run(run())
