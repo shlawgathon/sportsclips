@@ -144,38 +144,31 @@ fun Route.liveRoutes() {
         // Read from the live_videos collection populated by the background runner
         try {
             val app = call.application
-            val liveService = LiveVideoService(app.connectToMongoDB())
-            val lives = liveService.listAll().map { (id, live) ->
-                LiveListItemDTO(
-                    id = id,
-                    live = LiveVideoDTO(
-                        title = live.title,
-                        description = live.description,
-                        streamUrl = live.streamUrl,
-                        isLive = live.isLive,
-                        liveChatId = live.liveChatId,
-                        createdAt = (live.updatedAt ?: System.currentTimeMillis() / 1000) * 1000 // ms for client
-                    )
-                )
-            }
-
-            val items = if (lives.isNotEmpty()) lives else run {
-                // Provide a minimal default only if DB is empty
-                val defaultId = "8Gx4dpC2smo"
-                listOf(
+            val db = app.connectToMongoDB()
+            val liveService = LiveVideoService(db)
+            val chunkService = LiveChunkService(db)
+            // Only include lives that have at least one chunk recorded for their streamUrl
+            val lives = liveService.listAll()
+                .filter { (_, live) ->
+                    try {
+                        chunkService.listByStreamUrl(live.streamUrl, null, 1).isNotEmpty()
+                    } catch (_: Exception) { false }
+                }
+                .map { (id, live) ->
                     LiveListItemDTO(
-                        id = defaultId,
+                        id = id,
                         live = LiveVideoDTO(
-                            title = "Liverpool vs Manchester United - Live Stream",
-                            description = "Default live stream",
-                            streamUrl = "https://www.youtube.com/watch?v=$defaultId",
-                            isLive = true,
-                            liveChatId = null,
-                            createdAt = System.currentTimeMillis()
+                            title = live.title,
+                            description = live.description,
+                            streamUrl = live.streamUrl,
+                            isLive = live.isLive,
+                            liveChatId = live.liveChatId,
+                            createdAt = (live.updatedAt ?: System.currentTimeMillis() / 1000) * 1000 // ms for client
                         )
                     )
-                )
-            }
+                }
+
+            val items = lives
 
             val dt = System.currentTimeMillis() - started
             log.info("[LiveAPI] GET /live-videos success count=${items.size} durationMs=$dt")
@@ -251,12 +244,7 @@ fun Route.liveRoutes() {
             val s3 = S3Utility(bucketName = "sportsclips-clip-store", region = "auto")
             var presigned = true
             val dtos = chunks.map {
-                val url = try { s3.generatePresignedGetUrl(it.s3Key) } catch (_: Exception) {
-                    presigned = false
-                    val s3h = S3Helper(app)
-                    s3h.directDownloadUrl(it.s3Key)
-                }
-                LiveChunkDTO(chunkNumber = it.chunkNumber, s3Key = it.s3Key, url = url)
+                LiveChunkDTO(chunkNumber = it.chunkNumber, s3Key = it.s3Key, url = "https://clipstore.liftgate.io/${it.s3Key}")
             }
             val dt = System.currentTimeMillis() - started
             log.info("[LiveAPI] GET /live/chunks success count=${dtos.size} presigned=$presigned durationMs=$dt stream_url='$streamUrl'")
