@@ -246,7 +246,7 @@ struct VideoFeedView: View {
                     }
                 )
             }
-            .padding(.bottom, 80) // Same gap for both states
+            .padding(.bottom, 94) // Increased spacing between caption and menu bar
         }
         .zIndex(2) // Above everything else
     }
