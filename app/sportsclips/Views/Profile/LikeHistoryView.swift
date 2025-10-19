@@ -1,13 +1,13 @@
 //
-//  ViewHistoryView.swift
+//  LikeHistoryView.swift
 //  sportsclips
 //
-//  View history display for profile
+//  Like history display for profile
 //
 
 import SwiftUI
 
-struct ViewHistoryView: View {
+struct LikeHistoryView: View {
     @StateObject private var localStorage = LocalStorageService.shared
     @State private var videos: [VideoClip] = []
     
@@ -15,29 +15,31 @@ struct ViewHistoryView: View {
         VStack(alignment: .leading, spacing: 16) {
             // Section header
             HStack {
-                Text("Recently Watched")
+                Text("Liked Videos")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(.white)
                 
                 Spacer()
                 
-                Text("\(localStorage.viewHistory.count)")
+                Text("\(localStorage.interactions.filter { $0.liked }.count)")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white.opacity(0.7))
             }
             .padding(.horizontal, 20)
             
-            if localStorage.viewHistory.isEmpty {
+            let likedVideos = localStorage.interactions.filter { $0.liked }
+            
+            if likedVideos.isEmpty {
                 VStack(spacing: 16) {
-                    Image(systemName: "eye.slash")
+                    Image(systemName: "heart.slash")
                         .font(.system(size: 40, weight: .light))
                         .foregroundColor(.white.opacity(0.5))
                     
-                    Text("No videos watched yet")
+                    Text("No liked videos yet")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.white.opacity(0.7))
                     
-                    Text("Start watching videos to see your history here")
+                    Text("Start liking videos to see them here")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundColor(.white.opacity(0.5))
                         .multilineTextAlignment(.center)
@@ -45,21 +47,21 @@ struct ViewHistoryView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 40)
             } else {
-                // View history grid - scrollable with template content
+                // Like history grid - scrollable with template content
                 let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 2)
                 
                 ScrollView {
                     LazyVGrid(columns: gridColumns, spacing: 12) {
-                        // Show actual viewed videos if available
-                        ForEach(Array(localStorage.viewHistory.prefix(10).enumerated()), id: \.element) { index, videoId in
-                            if let video = videos.first(where: { $0.id == videoId }) {
-                                ViewHistoryGridItem(video: video, index: index + 1)
+                        // Show actual liked videos if available
+                        ForEach(Array(likedVideos.prefix(10).enumerated()), id: \.element) { index, interaction in
+                            if let video = videos.first(where: { $0.id == interaction.videoId }) {
+                                LikeHistoryGridItem(video: video, index: index + 1, likedAt: interaction.viewedAt)
                             }
                         }
                         
                         // Add template boxes for demonstration (remove when API is ready)
                         ForEach(0..<8, id: \.self) { index in
-                            ViewHistoryTemplateItem(index: index + 1)
+                            LikeHistoryTemplateItem(index: index + 1)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -67,11 +69,11 @@ struct ViewHistoryView: View {
                 }
             }
             
-            // Recently watched text at bottom
-            if !localStorage.viewHistory.isEmpty {
+            // Recently liked text at bottom
+            if !likedVideos.isEmpty {
                 HStack {
                     Spacer()
-                    Text("Recently watched videos")
+                    Text("Recently liked videos")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white.opacity(0.5))
                     Spacer()
@@ -96,9 +98,10 @@ struct ViewHistoryView: View {
     }
 }
 
-struct ViewHistoryGridItem: View {
+struct LikeHistoryGridItem: View {
     let video: VideoClip
     let index: Int
+    let likedAt: Date
     
     var body: some View {
         Button(action: {
@@ -112,9 +115,14 @@ struct ViewHistoryGridItem: View {
                     .frame(height: 100)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay(
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.white.opacity(0.8))
+                        VStack {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.red)
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
                     )
                 
                 // Video info
@@ -188,7 +196,7 @@ struct ViewHistoryGridItem: View {
     }
 }
 
-struct ViewHistoryTemplateItem: View {
+struct LikeHistoryTemplateItem: View {
     let index: Int
     
     var body: some View {
@@ -202,19 +210,24 @@ struct ViewHistoryTemplateItem: View {
                     .frame(height: 100)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay(
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.white.opacity(0.8))
+                        VStack {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.red)
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
                     )
                 
                 // Video info
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Image(systemName: "basketball")
+                        Image(systemName: "football")
                             .font(.system(size: 10))
                             .foregroundColor(.white.opacity(0.7))
                         
-                        Text("Basketball")
+                        Text("Football")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(.white.opacity(0.7))
                         
@@ -225,7 +238,7 @@ struct ViewHistoryTemplateItem: View {
                             .foregroundColor(.white.opacity(0.5))
                     }
                     
-                    Text("Incredible slam dunk highlight")
+                    Text("Amazing touchdown play from the game")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
                         .lineLimit(2)
@@ -237,7 +250,7 @@ struct ViewHistoryTemplateItem: View {
                                 .font(.system(size: 8))
                                 .foregroundColor(.red)
                             
-                            Text("856")
+                            Text("1.2K")
                                 .font(.system(size: 8, weight: .medium))
                                 .foregroundColor(.white.opacity(0.7))
                         }
@@ -247,7 +260,7 @@ struct ViewHistoryTemplateItem: View {
                                 .font(.system(size: 8))
                                 .foregroundColor(.white.opacity(0.7))
                             
-                            Text("23")
+                            Text("45")
                                 .font(.system(size: 8, weight: .medium))
                                 .foregroundColor(.white.opacity(0.7))
                         }
@@ -271,6 +284,6 @@ struct ViewHistoryTemplateItem: View {
 #Preview {
     ZStack {
         Color.black
-        ViewHistoryView()
+        LikeHistoryView()
     }
 }

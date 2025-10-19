@@ -8,7 +8,7 @@
 import Foundation
 import Combine
 
-struct VideoInteraction: Codable, Equatable {
+struct VideoInteraction: Codable, Equatable, Hashable {
     let videoId: String
     let liked: Bool
     let commented: Bool
