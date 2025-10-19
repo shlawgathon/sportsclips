@@ -712,6 +712,17 @@ class TestEndToEndGeminiAPI:
             pytest.skip("GEMINI_API_KEY not set in environment")
         return GeminiAgent(api_key=api_key, model_name="gemini-2.5-flash")
 
+    @pytest.fixture
+    def audio_agent(self):
+        """Create an agent with audio model for audio generation tests."""
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            pytest.skip("GEMINI_API_KEY not set in environment")
+        return GeminiAgent(
+            api_key=api_key,
+            model_name="gemini-2.5-flash-native-audio-preview-09-2025",
+        )
+
     @pytest.mark.asyncio
     async def test_e2e_simple_text_generation(self, agent):
         """Test simple text generation with real API."""
@@ -855,3 +866,136 @@ class TestEndToEndGeminiAPI:
         assert isinstance(response, str)
         assert len(response) > 10
         print(f"\n✅ E2E Test - Image understanding: {response}")
+
+    @pytest.mark.asyncio
+    async def test_e2e_text_to_text(self, agent):
+        """Test 1: text -> text conversion."""
+        response = await agent.generate_text(
+            "Explain what a neural network is in one sentence."
+        )
+
+        assert isinstance(response, str)
+        assert len(response) > 20
+        assert "neural" in response.lower() or "network" in response.lower()
+        print(f"\n✅ E2E Test - Text to Text: {response}")
+
+    @pytest.mark.asyncio
+    async def test_e2e_multiple_videos_text_to_text(self, agent):
+        """Test 2: multiple videos + text -> text conversion."""
+        from pathlib import Path
+
+        # Get paths to test videos
+        test_dir = Path(__file__).parent / "assets"
+        video1_path = test_dir / "test_video1.mp4"
+        video2_path = test_dir / "test_video2.mp4"
+
+        # Ensure test videos exist
+        if not video1_path.exists() or not video2_path.exists():
+            pytest.skip("Test videos not available in assets folder")
+
+        # Process multiple video inputs
+        video1_input = agent.process_input(str(video1_path), ModalityType.VIDEO)
+        video2_input = agent.process_input(str(video2_path), ModalityType.VIDEO)
+        text_input = agent.process_input(
+            "Describe what you see in these two videos. Are they similar or different?",
+            ModalityType.TEXT,
+        )
+
+        # Generate response
+        output = await agent.generate(
+            [video1_input, video2_input, text_input], output_modality=ModalityType.TEXT
+        )
+        response = agent.process_output(output)
+
+        assert isinstance(response, str)
+        assert len(response) > 30
+        print(f"\n✅ E2E Test - Multiple Videos + Text to Text: {response}")
+
+    @pytest.mark.asyncio
+    async def test_e2e_video_text_to_audio(self, audio_agent):
+        """Test 3: video + text -> audio conversion with audio-capable model."""
+        from pathlib import Path
+
+        # Get path to test video
+        test_dir = Path(__file__).parent / "assets"
+        video_path = test_dir / "test_video1.mp4"
+
+        # Ensure test video exists
+        if not video_path.exists():
+            pytest.skip("Test video not available in assets folder")
+
+        # Process video and text inputs
+        video_input = audio_agent.process_input(str(video_path), ModalityType.VIDEO)
+        text_input = audio_agent.process_input(
+            "Describe this video briefly", ModalityType.TEXT
+        )
+
+        # Generate audio output
+        output = await audio_agent.generate(
+            [video_input, text_input], output_modality=ModalityType.AUDIO
+        )
+
+        # Check that we got audio data back
+        assert output.modality == ModalityType.AUDIO
+
+        # Process the output
+        audio_data = audio_agent.process_output(output)
+
+        # Audio output should be bytes
+        assert isinstance(audio_data, bytes)
+        assert len(audio_data) > 0
+        print(
+            f"\n✅ E2E Test - Video + Text to Audio: Generated {len(audio_data)} bytes of audio"
+        )
+
+        # Optionally save the audio to verify
+        output_path = test_dir / "test_output_audio.mp3"
+        with open(output_path, "wb") as f:
+            f.write(audio_data)
+        print(f"   Audio saved to: {output_path}")
+
+    @pytest.mark.asyncio
+    async def test_e2e_multimodal_video_and_text_to_text(self, agent):
+        """Test: Single video + text -> text using convenience method."""
+        from pathlib import Path
+
+        # Get path to test video
+        test_dir = Path(__file__).parent / "assets"
+        video_path = test_dir / "test_video1.mp4"
+
+        if not video_path.exists():
+            pytest.skip("Test video not available in assets folder")
+
+        # Use convenience method
+        response = await agent.generate_from_video(
+            str(video_path), "What kind of video is this? Describe it briefly."
+        )
+
+        assert isinstance(response, str)
+        assert len(response) > 10
+        print(f"\n✅ E2E Test - Single Video + Text to Text: {response}")
+
+    @pytest.mark.asyncio
+    async def test_e2e_multimodal_comprehensive(self, agent):
+        """Test: Comprehensive multimodal test with multiple inputs."""
+        from pathlib import Path
+
+        test_dir = Path(__file__).parent / "assets"
+        video1_path = test_dir / "test_video1.mp4"
+        video2_path = test_dir / "test_video2.mp4"
+
+        if not video1_path.exists() or not video2_path.exists():
+            pytest.skip("Test videos not available in assets folder")
+
+        # Use generate_multimodal convenience method
+        response = await agent.generate_multimodal(
+            text_prompts=[
+                "I'm showing you two test videos.",
+                "Please analyze them and tell me what patterns you observe.",
+            ],
+            videos=[str(video1_path), str(video2_path)],
+        )
+
+        assert isinstance(response, str)
+        assert len(response) > 20
+        print(f"\n✅ E2E Test - Comprehensive Multimodal: {response}")

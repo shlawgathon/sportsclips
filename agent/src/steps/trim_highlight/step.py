@@ -98,7 +98,7 @@ def _concatenate_chunks(chunks: list[bytes]) -> bytes:
             pass
 
 
-def _run_async(coro):
+def _run_async(coro: Any) -> Any:
     """
     Run async function in sync context.
 
@@ -263,4 +263,7 @@ def trim_highlight_step(
     logger.info("Running trim_highlight_step with Gemini LLM")
 
     trimmer = _get_trimmer()
-    return _run_async(trimmer.trim_highlight(window_chunks, metadata))
+    result: tuple[bytes, dict[str, Any]] = _run_async(
+        trimmer.trim_highlight(window_chunks, metadata)
+    )
+    return result

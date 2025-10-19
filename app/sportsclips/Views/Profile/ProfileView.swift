@@ -154,6 +154,9 @@ struct ProfileView: View {
             guard let newItem else { return }
             Task { await handlePickedItem(newItem) }
         }
+        .onAppear {
+            Task { await localStorage.refreshProfileFromServer() }
+        }
     }
 
     private func saveName() {

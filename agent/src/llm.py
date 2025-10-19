@@ -9,13 +9,12 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional, Union
 from urllib.request import urlopen
 
-import google.generativeai as genai
-from PIL import Image
+from google import genai
+from google.genai import types
 
 
 class ModalityType(Enum):
@@ -275,12 +274,11 @@ class GeminiAgent:
         self.model_name = model_name
         self.input_hooks: dict[ModalityType, InputHook] = {}
         self.output_hooks: dict[ModalityType, OutputHook] = {}
-        self._model = None
+        self._client = None
 
-        # Configure Gemini API if key is available
+        # Configure Gemini API client if key is available
         if self.api_key:
-            genai.configure(api_key=self.api_key)
-            self._model = genai.GenerativeModel(self.model_name)
+            self._client = genai.Client(api_key=self.api_key)
 
         # Register default hooks
         self._register_default_hooks()
@@ -378,64 +376,132 @@ class GeminiAgent:
             AgentOutput: Generated output (may contain function call)
 
         Raises:
-            ValueError: If model is not initialized or input modality is unsupported
+            ValueError: If client is not initialized or input modality is unsupported
         """
-        if not self._model:
-            raise ValueError("Model not initialized. Please provide an API key.")
+        if not self._client:
+            raise ValueError("Client not initialized. Please provide an API key.")
 
-        # Build content list for Gemini
+        # Build content list for Gemini using new SDK
         content_parts = []
-        temp_files: list[str] = []  # Track temp files to clean up later
 
         try:
             for agent_input in inputs:
                 if agent_input.modality == ModalityType.TEXT:
                     content_parts.append(agent_input.data)
                 elif agent_input.modality == ModalityType.IMAGE:
-                    # Handle image input with PIL
+                    # Handle image input
                     if isinstance(agent_input.data, bytes):
-                        img = Image.open(BytesIO(agent_input.data))
-                        content_parts.append(img)
+                        # Use Part.from_bytes for image bytes
+                        content_parts.append(
+                            types.Part.from_bytes(
+                                data=agent_input.data,
+                                mime_type="image/jpeg",  # Default to JPEG
+                            )
+                        )
                     elif isinstance(agent_input.data, (str, Path)):
                         data_str = str(agent_input.data)
                         if data_str.startswith(("http://", "https://")):
-                            # Load image from URL
+                            # Load image from URL and use bytes
                             with urlopen(data_str) as response:
-                                img = Image.open(BytesIO(response.read()))
-                                content_parts.append(img)
+                                image_data = response.read()
+                            content_parts.append(
+                                types.Part.from_bytes(
+                                    data=image_data, mime_type="image/jpeg"
+                                )
+                            )
                         else:
                             # Load from local file
-                            img = Image.open(agent_input.data)
-                            content_parts.append(img)
+                            with open(data_str, "rb") as f:
+                                image_data = f.read()
+                            # Determine mime type from extension
+                            if data_str.lower().endswith(".png"):
+                                mime_type = "image/png"
+                            elif data_str.lower().endswith(
+                                ".jpg"
+                            ) or data_str.lower().endswith(".jpeg"):
+                                mime_type = "image/jpeg"
+                            else:
+                                mime_type = "image/jpeg"
+                            content_parts.append(
+                                types.Part.from_bytes(
+                                    data=image_data, mime_type=mime_type
+                                )
+                            )
                 elif agent_input.modality in (ModalityType.VIDEO, ModalityType.AUDIO):
-                    # For video/audio we still need file upload API
-                    # For now, just pass the data as-is
-                    content_parts.append(agent_input.data)
+                    # For video/audio, use Part.from_bytes
+                    file_bytes = None
+                    mime_type = None
 
-            # Build generation config
-            gen_config = (
-                genai.types.GenerationConfig(**generation_config)
-                if generation_config
-                else None
-            )
+                    if isinstance(agent_input.data, bytes):
+                        # Already bytes
+                        file_bytes = agent_input.data
+                        mime_type = (
+                            "video/mp4"
+                            if agent_input.modality == ModalityType.VIDEO
+                            else "audio/mpeg"
+                        )
+                    elif isinstance(agent_input.data, (str, Path)):
+                        # Read file from path
+                        file_path = str(agent_input.data)
+                        with open(file_path, "rb") as f:
+                            file_bytes = f.read()
 
-            # Generate content with optional tools
+                        # Determine MIME type from extension
+                        if file_path.endswith((".mp4", ".MP4")):
+                            mime_type = "video/mp4"
+                        elif file_path.endswith((".mp3", ".MP3")):
+                            mime_type = "audio/mpeg"
+                        elif file_path.endswith((".wav", ".WAV")):
+                            mime_type = "audio/wav"
+                        elif file_path.endswith((".ogg", ".OGG")):
+                            mime_type = "audio/ogg"
+
+                    # Create Part using from_bytes
+                    if file_bytes and mime_type:
+                        content_parts.append(
+                            types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
+                        )
+
+            # Build generation config dict for new SDK
+            gen_config = {}
+            if generation_config:
+                # Map common config parameters
+                if "temperature" in generation_config:
+                    gen_config["temperature"] = generation_config["temperature"]
+                if "max_output_tokens" in generation_config:
+                    gen_config["max_output_tokens"] = generation_config[
+                        "max_output_tokens"
+                    ]
+                if "top_p" in generation_config:
+                    gen_config["top_p"] = generation_config["top_p"]
+                if "top_k" in generation_config:
+                    gen_config["top_k"] = generation_config["top_k"]
+
+            # Add tools to config if provided
             if tools:
-                response = await self._model.generate_content_async(
-                    content_parts,
-                    generation_config=gen_config,
-                    tools=tools,
-                )
-            else:
-                response = await self._model.generate_content_async(
-                    content_parts,
-                    generation_config=gen_config,
-                )
+                gen_config["tools"] = tools
+
+            # Prepare generation arguments
+            generate_kwargs: dict[str, Any] = {
+                "model": self.model_name,
+                "contents": content_parts,
+            }
+
+            if gen_config:
+                generate_kwargs["config"] = types.GenerateContentConfig(**gen_config)
+
+            # Generate content using new SDK
+            response = await self._client.aio.models.generate_content(**generate_kwargs)  # type: ignore[arg-type]
 
             # Check if response contains function calls
             if hasattr(response, "candidates") and response.candidates:
                 candidate = response.candidates[0]
-                if hasattr(candidate.content, "parts"):
+                if (
+                    hasattr(candidate, "content")
+                    and candidate.content
+                    and hasattr(candidate.content, "parts")
+                    and candidate.content.parts
+                ):
                     for part in candidate.content.parts:
                         if hasattr(part, "function_call") and part.function_call:
                             # Return function call data
@@ -444,7 +510,9 @@ class GeminiAgent:
                                 modality=output_modality,
                                 data={
                                     "name": function_call.name,
-                                    "args": dict(function_call.args),
+                                    "args": dict(function_call.args)
+                                    if function_call.args
+                                    else {},
                                 },
                                 metadata={
                                     "inputs": len(inputs),
@@ -454,28 +522,68 @@ class GeminiAgent:
                                 },
                             )
 
-            # Extract text from response
-            response_text = response.text
-
-            return AgentOutput(
-                modality=output_modality,
-                data=response_text,
-                metadata={
-                    "inputs": len(inputs),
-                    "config": generation_config,
-                    "model": self.model_name,
-                    "type": "text",
-                },
-            )
+            # Handle different output modalities
+            if output_modality == ModalityType.TEXT:
+                # Extract text from response
+                response_text = response.text
+                return AgentOutput(
+                    modality=output_modality,
+                    data=response_text,
+                    metadata={
+                        "inputs": len(inputs),
+                        "config": generation_config,
+                        "model": self.model_name,
+                        "type": "text",
+                    },
+                )
+            elif output_modality == ModalityType.AUDIO:
+                # For audio output, extract from inline_data if available
+                if hasattr(response, "candidates") and response.candidates:
+                    candidate = response.candidates[0]
+                    if (
+                        hasattr(candidate, "content")
+                        and candidate.content
+                        and hasattr(candidate.content, "parts")
+                        and candidate.content.parts
+                    ):
+                        for part in candidate.content.parts:
+                            if hasattr(part, "inline_data") and part.inline_data:
+                                return AgentOutput(
+                                    modality=output_modality,
+                                    data=part.inline_data.data,
+                                    metadata={
+                                        "inputs": len(inputs),
+                                        "config": generation_config,
+                                        "model": self.model_name,
+                                        "type": "audio",
+                                        "mime_type": part.inline_data.mime_type,
+                                    },
+                                )
+                # Fallback to empty audio if no inline_data
+                return AgentOutput(
+                    modality=output_modality,
+                    data=b"",
+                    metadata={
+                        "inputs": len(inputs),
+                        "config": generation_config,
+                        "model": self.model_name,
+                        "type": "audio",
+                    },
+                )
+            else:
+                # For other modalities, try to extract text as fallback
+                return AgentOutput(
+                    modality=output_modality,
+                    data=response.text if hasattr(response, "text") else "",
+                    metadata={
+                        "inputs": len(inputs),
+                        "config": generation_config,
+                        "model": self.model_name,
+                        "type": "other",
+                    },
+                )
         except Exception as e:
             raise ValueError(f"Failed to generate content: {str(e)}")
-        finally:
-            # Clean up temp files
-            for temp_file in temp_files:
-                try:
-                    os.unlink(temp_file)
-                except Exception:
-                    pass  # Ignore cleanup errors
 
     async def generate_text(
         self, prompt: str, context_inputs: Optional[list[AgentInput]] = None

@@ -203,4 +203,23 @@ class LocalStorageService: ObservableObject {
         // TODO: Send interactions to API when user is logged in
         // This would batch send the local interactions to the server
     }
+
+    // MARK: - Profile Refresh from Server
+    func refreshProfileFromServer() async {
+        guard userProfile != nil else { return }
+        do {
+            let me = try await APIClient.shared.getMe()
+            // Prefer displayName when available; fallback to username from server
+            let newDisplayName = me.user.displayName ?? me.user.username
+            var profile = self.userProfile!
+            profile.username = newDisplayName
+            profile.profilePictureBase64 = me.user.profilePictureBase64
+            self.userProfile = profile
+            saveProfile()
+            forceRefresh()
+            print("✅ LocalStorageService: Refreshed profile from server")
+        } catch {
+            print("⚠️ LocalStorageService: Failed to refresh profile from server - \(error)")
+        }
+    }
 }

@@ -2,7 +2,7 @@
 Prompts and tool schemas for highlight detection.
 """
 
-import google.generativeai as genai
+from google.genai import types
 
 HIGHLIGHT_DETECTION_PROMPT = """Analyze this video clip and determine if it contains a highlight moment worthy of saving.
 
@@ -21,25 +21,25 @@ NOT a highlight:
 Use the report_highlight_detection function to provide your assessment."""
 
 # Tool/function declaration for highlight detection
-HIGHLIGHT_DETECTION_TOOL = genai.protos.Tool(
+HIGHLIGHT_DETECTION_TOOL = types.Tool(
     function_declarations=[
-        genai.protos.FunctionDeclaration(
+        types.FunctionDeclaration(
             name="report_highlight_detection",
             description="Report whether a video clip contains a highlight moment",
-            parameters=genai.protos.Schema(
-                type=genai.protos.Type.OBJECT,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
                 properties={
-                    "is_highlight": genai.protos.Schema(
-                        type=genai.protos.Type.BOOLEAN,
+                    "is_highlight": types.Schema(
+                        type=types.Type.BOOLEAN,
                         description="Whether this video contains a highlight moment",
                     ),
-                    "confidence": genai.protos.Schema(
-                        type=genai.protos.Type.STRING,
+                    "confidence": types.Schema(
+                        type=types.Type.STRING,
                         description="Confidence level: 'high', 'medium', or 'low'",
                         enum=["high", "medium", "low"],
                     ),
-                    "reason": genai.protos.Schema(
-                        type=genai.protos.Type.STRING,
+                    "reason": types.Schema(
+                        type=types.Type.STRING,
                         description="Brief explanation of why this is or is not a highlight",
                     ),
                 },

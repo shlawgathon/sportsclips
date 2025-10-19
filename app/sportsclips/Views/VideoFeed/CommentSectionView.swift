@@ -225,21 +225,3 @@ struct CommentRowView: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
-
-#Preview {
-    let sample = VideoClip(
-        id: "preview",
-        videoURL: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-        caption: "Preview caption",
-        sport: .football,
-        likes: 0,
-        comments: 0,
-        shares: 0,
-        createdAt: Date(),
-        s3Key: nil,
-        title: "Preview Title",
-        description: "Preview description"
-    )
-    CommentSectionView(video: sample)
-        .preferredColorScheme(.dark)
-}
