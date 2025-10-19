@@ -139,6 +139,7 @@ class SlidingWindowPipeline:
             highlight_queue: Queue for highlight detection pipeline
             live_queue: Queue for live commentary pipeline (None if disabled)
         """
+
         # Helper function to safely get next item from iterator
         def safe_next(it):
             try:
@@ -303,9 +304,7 @@ class SlidingWindowPipeline:
             if enable_live_commentary:
                 pipelines_enabled.append("Live Commentary")
 
-            logger.info(
-                f"Starting queue-based pipeline for {stream_type}: {video_url}"
-            )
+            logger.info(f"Starting queue-based pipeline for {stream_type}: {video_url}")
             logger.info(f"Active pipelines: {', '.join(pipelines_enabled)}")
             logger.info(
                 f"Window config: {self.window_size} chunks ({self.window_size * self.base_chunk_duration}s), "
@@ -327,7 +326,7 @@ class SlidingWindowPipeline:
                     highlight_queue=highlight_queue,
                     live_queue=live_queue,
                 ),
-                name="chunk_producer"
+                name="chunk_producer",
             )
 
             # Create highlight detection consumer task
@@ -340,7 +339,7 @@ class SlidingWindowPipeline:
                     create_complete_message=create_complete_message,
                     create_error_message=create_error_message,
                 ),
-                name="highlight_detection"
+                name="highlight_detection",
             )
 
             # Create live commentary consumer task (if enabled)
@@ -349,11 +348,10 @@ class SlidingWindowPipeline:
                 config = live_commentary_config or {}
                 system_instruction = config.get(
                     "system_instruction",
-                    "You are an enthusiastic sports commentator providing live audio commentary."
+                    "You are an enthusiastic sports commentator providing live audio commentary.",
                 )
                 prompt = config.get(
-                    "prompt",
-                    "Provide engaging sports commentary for this video."
+                    "prompt", "Provide engaging sports commentary for this video."
                 )
                 live_fps = config.get("fps", 1.0)
 
@@ -366,7 +364,7 @@ class SlidingWindowPipeline:
                         prompt=prompt,
                         fps=live_fps,
                     ),
-                    name="live_commentary"
+                    name="live_commentary",
                 )
 
             # Wait for all tasks to complete
@@ -380,7 +378,9 @@ class SlidingWindowPipeline:
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     task_name = tasks[i].get_name()
-                    logger.error(f"Task '{task_name}' failed: {result}", exc_info=result)
+                    logger.error(
+                        f"Task '{task_name}' failed: {result}", exc_info=result
+                    )
                     raise result
 
             logger.info("All pipelines completed successfully")
@@ -475,7 +475,9 @@ class SlidingWindowPipeline:
                 # Save debug videos if enabled
                 if self.debug_dir is not None:
                     for i, chunk in enumerate(window_chunks):
-                        chunk_filename = f"window_{self.debug_window_count:04d}_0_chunk_{i:02d}.mp4"
+                        chunk_filename = (
+                            f"window_{self.debug_window_count:04d}_0_chunk_{i:02d}.mp4"
+                        )
                         chunk_filepath = self.debug_dir / chunk_filename
                         try:
                             with open(chunk_filepath, "wb") as f:
@@ -483,16 +485,22 @@ class SlidingWindowPipeline:
                         except Exception as e:
                             logger.warning(f"Failed to save debug chunk {i}: {e}")
 
-                    input_video = await asyncio.to_thread(self._concatenate_chunks, window_chunks)
-                    self._save_debug_video(input_video, "1_input_window", self.debug_window_count)
+                    input_video = await asyncio.to_thread(
+                        self._concatenate_chunks, window_chunks
+                    )
+                    self._save_debug_video(
+                        input_video, "1_input_window", self.debug_window_count
+                    )
 
                 # Create metadata for this window
                 metadata: dict[str, Any] = {
                     "src_video_url": video_url,
                     "window_start_chunk": current_window_start,
                     "window_end_chunk": current_window_start + self.window_size - 1,
-                    "window_start_time": current_window_start * self.base_chunk_duration,
-                    "window_end_time": (current_window_start + self.window_size) * self.base_chunk_duration,
+                    "window_start_time": current_window_start
+                    * self.base_chunk_duration,
+                    "window_end_time": (current_window_start + self.window_size)
+                    * self.base_chunk_duration,
                     "base_chunk_duration": self.base_chunk_duration,
                 }
 
@@ -513,8 +521,14 @@ class SlidingWindowPipeline:
                 if is_highlight:
                     # Save detected highlight for debug
                     if self.debug_dir is not None:
-                        detected_video = await asyncio.to_thread(self._concatenate_chunks, window_chunks)
-                        self._save_debug_video(detected_video, "2_detected_highlight", self.debug_window_count)
+                        detected_video = await asyncio.to_thread(
+                            self._concatenate_chunks, window_chunks
+                        )
+                        self._save_debug_video(
+                            detected_video,
+                            "2_detected_highlight",
+                            self.debug_window_count,
+                        )
 
                     # Step 2: Trim to actual highlight portions
                     trimmed_video = b""
@@ -524,12 +538,20 @@ class SlidingWindowPipeline:
                             trimmed_video, metadata = await trim_result
                         else:
                             trimmed_video, metadata = trim_result
-                        logger.info(f"[Highlight Detection] Trimmed video size: {len(trimmed_video)} bytes")
-                        self._save_debug_video(trimmed_video, "3_trimmed", self.debug_window_count)
+                        logger.info(
+                            f"[Highlight Detection] Trimmed video size: {len(trimmed_video)} bytes"
+                        )
+                        self._save_debug_video(
+                            trimmed_video, "3_trimmed", self.debug_window_count
+                        )
                     else:
                         logger.warning("[Highlight Detection] No trim_step configured")
-                        trimmed_video = await asyncio.to_thread(self._concatenate_chunks, window_chunks)
-                        self._save_debug_video(trimmed_video, "3_trimmed_fallback", self.debug_window_count)
+                        trimmed_video = await asyncio.to_thread(
+                            self._concatenate_chunks, window_chunks
+                        )
+                        self._save_debug_video(
+                            trimmed_video, "3_trimmed_fallback", self.debug_window_count
+                        )
 
                     # Step 3: Generate caption and description
                     title = f"Highlight {highlight_count + 1}"
@@ -543,29 +565,41 @@ class SlidingWindowPipeline:
                             title, description, metadata = caption_result
                         logger.info(f"[Highlight Detection] Generated caption: {title}")
                     else:
-                        logger.warning("[Highlight Detection] No caption_step configured")
+                        logger.warning(
+                            "[Highlight Detection] No caption_step configured"
+                        )
 
                     # Save final video for debug
-                    self._save_debug_video(trimmed_video, "4_final_output", self.debug_window_count)
+                    self._save_debug_video(
+                        trimmed_video, "4_final_output", self.debug_window_count
+                    )
 
                     # Send the highlight
-                    snippet_msg = create_snippet_message(trimmed_video, video_url, title, description)
+                    snippet_msg = create_snippet_message(
+                        trimmed_video, video_url, title, description
+                    )
                     await asyncio.to_thread(ws.send, snippet_msg)
 
                     highlight_count += 1
-                    logger.info(f"[Highlight Detection] Sent highlight {highlight_count}")
+                    logger.info(
+                        f"[Highlight Detection] Sent highlight {highlight_count}"
+                    )
 
                     self.debug_window_count += 1
 
                     # Slide by entire window to avoid duplicate highlights
                     last_processed_position = current_window_start
                     current_window_start += self.window_size
-                    logger.info(f"[Highlight Detection] Sliding by {self.window_size} chunks")
+                    logger.info(
+                        f"[Highlight Detection] Sliding by {self.window_size} chunks"
+                    )
                 else:
                     # No highlight, slide by step size
                     last_processed_position = current_window_start
                     current_window_start += self.slide_step
-                    logger.info(f"[Highlight Detection] Sliding by {self.slide_step} chunks")
+                    logger.info(
+                        f"[Highlight Detection] Sliding by {self.slide_step} chunks"
+                    )
 
             # Send completion message
             await asyncio.to_thread(ws.send, create_complete_message(video_url))
@@ -590,17 +624,18 @@ class SlidingWindowPipeline:
         Consumer: Process 8-second chunks (2x 4-second base chunks) with Live API commentary.
 
         Buffering approach:
-        1. Read 2 consecutive 4-second chunks from queue
-        2. Concatenate them into a single 8-second chunk
-        3. Extract frames at 4 FPS (~32 frames per 8-second chunk)
-        4. Send all frames to Live API (~3.2 seconds to send)
-        5. Send prompt requesting minimal 3-12 word commentary
-        6. Collect complete audio response
-        7. Package audio + video together
-        8. Send as live_commentary_chunk message
-        9. Repeat for next pair of chunks
+        1. Buffer 2 consecutive 4-second chunks from queue
+        2. Concatenate them upfront into a single 8-second chunk
+        3. Extract frames at specified FPS from the combined chunk
+        4. Send all frames to Gemini Live API
+        5. Send prompt to trigger commentary generation
+        6. Collect complete audio response from Live API
+        7. Stitch audio with the 8-second video chunk
+        8. Create fragmented MP4 for streaming
+        9. Send complete audio+video package through websockets
+        10. Repeat for next pair of chunks
 
-        This approach is reliable and produces consistent 8-second results.
+        This approach ensures proper synchronization and clean 8-second results.
 
         Args:
             queue: Queue to read chunks from (4-second base chunks)
@@ -610,179 +645,269 @@ class SlidingWindowPipeline:
             prompt: User prompt for commentary generation
             fps: Frames per second to extract from video chunks (default: 4.0)
         """
-        from .live import stitch_audio_video, create_fragmented_mp4, extract_frames_from_chunk
-        from .llm import GeminiLiveClient
         import base64
         import json
-        import subprocess
-        import tempfile
 
-        def concatenate_video_chunks(chunk1: bytes, chunk2: bytes) -> bytes:
-            """Concatenate two video chunks into one using ffmpeg."""
-            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f1:
+        from .live import (
+            create_fragmented_mp4,
+            extract_frames_from_chunk,
+            stitch_audio_video,
+        )
+        from .llm import GeminiLiveClient
+
+        async def concatenate_two_chunks(chunk1: bytes, chunk2: bytes) -> bytes:
+            """
+            Concatenate two video chunks into one using ffmpeg concat filter.
+
+            Args:
+                chunk1: First video chunk (4 seconds)
+                chunk2: Second video chunk (4 seconds)
+
+            Returns:
+                Combined video chunk (8 seconds)
+            """
+            import os
+            import subprocess
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f1:
                 f1.write(chunk1)
                 f1_path = f1.name
 
-            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f2:
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f2:
                 f2.write(chunk2)
                 f2_path = f2.name
 
-            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f_out:
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f_out:
                 out_path = f_out.name
 
             try:
-                # Use ffmpeg concat protocol
+                # Use ffmpeg concat filter for seamless combining
                 concat_cmd = [
-                    'ffmpeg', '-y', '-i', f1_path, '-i', f2_path,
-                    '-filter_complex', '[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]',
-                    '-map', '[outv]', '-map', '[outa]',
-                    '-c:v', 'libx264', '-c:a', 'aac',
-                    out_path
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    f1_path,
+                    "-i",
+                    f2_path,
+                    "-filter_complex",
+                    "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]",
+                    "-map",
+                    "[outv]",
+                    "-map",
+                    "[outa]",
+                    "-c:v",
+                    "libx264",
+                    "-c:a",
+                    "aac",
+                    out_path,
                 ]
-                subprocess.run(concat_cmd, check=True, capture_output=True)
+                _result = subprocess.run(
+                    concat_cmd, check=True, capture_output=True, text=True
+                )
 
-                with open(out_path, 'rb') as f:
+                with open(out_path, "rb") as f:
                     return f.read()
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to concatenate chunks: {e.stderr}")
+                raise
             finally:
-                import os
                 os.unlink(f1_path)
                 os.unlink(f2_path)
                 os.unlink(out_path)
 
+        async def process_combined_chunk(
+            combined_chunk: bytes,
+            chunk_number: int,
+            live_client: GeminiLiveClient,
+        ) -> None:
+            """
+            Process a single 8-second combined chunk through the full pipeline.
+
+            Args:
+                combined_chunk: 8-second video chunk
+                chunk_number: Sequential chunk number for tracking
+                live_client: Connected Gemini Live API client
+            """
+            try:
+                logger.info(
+                    f"[Live Commentary] Processing 8-second chunk {chunk_number}..."
+                )
+
+                # Step 1: Extract frames from the combined chunk
+                frames = await asyncio.to_thread(
+                    extract_frames_from_chunk, combined_chunk, fps
+                )
+                if not frames:
+                    logger.warning(
+                        f"[Live Commentary] No frames extracted from chunk {chunk_number}, skipping"
+                    )
+                    return
+
+                logger.info(
+                    f"[Live Commentary] Extracted {len(frames)} frames from chunk {chunk_number}"
+                )
+
+                # Step 2: Send all frames to Live API
+                for frame in frames:
+                    await live_client.send_frame(frame)
+                logger.info(f"[Live Commentary] Sent {len(frames)} frames to Live API")
+
+                # Step 3: Send prompt to trigger commentary generation
+                await live_client.send(prompt, end_of_turn=True)
+                logger.info(
+                    "[Live Commentary] Sent prompt, waiting for audio response..."
+                )
+
+                # Step 4: Collect complete audio response
+                audio_chunks: list[bytes] = []
+                async for audio_chunk in live_client.receive_audio_chunks():
+                    audio_chunks.append(audio_chunk)
+                    # Limit collection for minimal commentary (3-12 words ~2-3 seconds)
+                    if len(audio_chunks) >= 60:
+                        break
+
+                audio_pcm = b"".join(audio_chunks)
+                logger.info(
+                    f"[Live Commentary] Collected {len(audio_chunks)} audio chunks ({len(audio_pcm):,} bytes)"
+                )
+
+                if not audio_pcm:
+                    logger.warning(
+                        f"[Live Commentary] No audio generated for chunk {chunk_number}"
+                    )
+                    return
+
+                # Step 5: Stitch audio with the 8-second video
+                stitched_video = await asyncio.to_thread(
+                    stitch_audio_video, combined_chunk, audio_pcm, 24000
+                )
+                logger.info(
+                    f"[Live Commentary] Stitched audio+video: {len(stitched_video):,} bytes"
+                )
+
+                # Step 6: Create fragmented MP4 for streaming
+                fragmented_video = await asyncio.to_thread(
+                    create_fragmented_mp4, stitched_video
+                )
+                logger.info(
+                    f"[Live Commentary] Created fragmented MP4: {len(fragmented_video):,} bytes"
+                )
+
+                # Step 7: Send complete package through websockets
+                message = json.dumps(
+                    {
+                        "type": "live_commentary_chunk",
+                        "data": {
+                            "video_data": base64.b64encode(fragmented_video).decode(
+                                "utf-8"
+                            ),
+                            "metadata": {
+                                "src_video_url": video_url,
+                                "chunk_number": chunk_number,
+                                "format": "fragmented_mp4",
+                                "audio_sample_rate": 24000,
+                                "commentary_length_bytes": len(audio_pcm),
+                                "video_length_bytes": len(fragmented_video),
+                                "base_chunks_combined": 2,
+                                "total_duration_seconds": 8,
+                            },
+                        },
+                    }
+                )
+
+                # Send through websocket (handle both sync and async send methods)
+                if hasattr(ws, "send"):
+                    if asyncio.iscoroutinefunction(ws.send):
+                        await ws.send(message)
+                    else:
+                        await asyncio.to_thread(ws.send, message)
+                else:
+                    await asyncio.to_thread(ws.send, message)
+
+                logger.info(
+                    f"[Live Commentary] ✓ Successfully sent chunk {chunk_number} with commentary"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"[Live Commentary] Error processing chunk {chunk_number}: {e}",
+                    exc_info=True,
+                )
+
+        # Main processing loop
         live_client = None
         chunk_number = 0
         chunk_buffer: list[bytes] = []
 
         try:
-            logger.info("[Live Commentary] Starting per-chunk commentary pipeline (8s chunks)...")
+            logger.info(
+                "[Live Commentary] Starting 8-second chunk commentary pipeline..."
+            )
 
-            # Create and connect Live API client once
+            # Create and connect Live API client once for entire session
             live_client = GeminiLiveClient(system_instruction=system_instruction)
             await live_client.connect()
-            logger.info("[Live Commentary] ✓ Connected to Live API")
+            logger.info("[Live Commentary] ✓ Connected to Gemini Live API")
 
             # Process pairs of 4-second chunks as 8-second chunks
             while True:
-                # Read a chunk from the queue
+                # Read next chunk from queue
                 chunk_data = await queue.get()
+
                 if chunk_data is None:
-                    # If we have a buffered chunk, process it alone
+                    # End of stream - process any remaining buffered chunk if available
                     if chunk_buffer:
-                        logger.info("[Live Commentary] Processing final buffered chunk alone")
+                        logger.info(
+                            "[Live Commentary] Processing final buffered chunk (4 seconds only)"
+                        )
                         chunk_number += 1
-                        combined_chunk = chunk_buffer[0]
-                        chunk_buffer.clear()
-                    else:
-                        logger.info("[Live Commentary] Received completion signal")
-                        break
-                else:
-                    # Add to buffer
-                    chunk_buffer.append(chunk_data)
+                        # Process single chunk as-is (won't be 8 seconds but better than dropping it)
+                        await process_combined_chunk(
+                            chunk_buffer[0], chunk_number, live_client
+                        )
 
-                    # Wait until we have 2 chunks
-                    if len(chunk_buffer) < 2:
-                        continue
+                    logger.info("[Live Commentary] Received completion signal")
+                    break
 
-                    # Combine the two chunks
-                    chunk_number += 1
-                    logger.info(f"[Live Commentary] Combining 2 chunks into 8-second chunk {chunk_number}...")
-                    combined_chunk = await asyncio.to_thread(
-                        concatenate_video_chunks, chunk_buffer[0], chunk_buffer[1]
-                    )
-                    chunk_buffer.clear()
+                # Add chunk to buffer
+                chunk_buffer.append(chunk_data)
+                logger.info(f"[Live Commentary] Buffered chunk {len(chunk_buffer)}/2")
 
-                logger.info(f"[Live Commentary] Processing 8-second chunk {chunk_number}...")
-
-                try:
-                    # Step 1: Extract frames from combined 8-second chunk
-                    frames = await asyncio.to_thread(extract_frames_from_chunk, combined_chunk, fps)
-                    if not frames:
-                        logger.warning(f"[Live Commentary] No frames in chunk {chunk_number}, skipping")
-                        continue
-
-                    logger.info(f"[Live Commentary] Extracted {len(frames)} frames from 8-second chunk {chunk_number}")
-
-                    # Step 2: Send frames to Live API
-                    for i, frame in enumerate(frames, 1):
-                        await live_client.send_frame(frame)
-                    logger.info(f"[Live Commentary] Sent {len(frames)} frames to Live API")
-
-                    # Step 3: Send prompt to trigger commentary
-                    await live_client.send(prompt, end_of_turn=True)
-                    logger.info("[Live Commentary] Sent prompt, collecting audio response...")
-
-                    # Step 4: Collect complete audio response
-                    # For 3-12 words at 24kHz, we expect ~20-60 chunks
-                    audio_chunks: list[bytes] = []
-                    async for audio_chunk in live_client.receive_audio_chunks():
-                        audio_chunks.append(audio_chunk)
-                        # Stop after reasonable limit for minimal commentary
-                        if len(audio_chunks) >= 60:  # ~2-3 seconds of audio
-                            break
-
-                    audio_pcm = b"".join(audio_chunks)
-                    logger.info(f"[Live Commentary] Collected {len(audio_chunks)} audio chunks ({len(audio_pcm):,} bytes)")
-
-                    if not audio_pcm:
-                        logger.warning(f"[Live Commentary] No audio generated for chunk {chunk_number}")
-                        continue
-
-                    # Step 5: Stitch audio with combined 8-second video
-                    stitched_video = await asyncio.to_thread(
-                        stitch_audio_video, combined_chunk, audio_pcm, 24000
-                    )
-                    logger.info(f"[Live Commentary] Stitched audio+video: {len(stitched_video):,} bytes")
-
-                    # Step 6: Create fragmented MP4
-                    fragmented_video = await asyncio.to_thread(
-                        create_fragmented_mp4, stitched_video
-                    )
-                    logger.info(f"[Live Commentary] Created fragmented MP4: {len(fragmented_video):,} bytes")
-
-                    # Step 7: Send as live_commentary_chunk message
-                    message = json.dumps(
-                        {
-                            "type": "live_commentary_chunk",
-                            "data": {
-                                "video_data": base64.b64encode(fragmented_video).decode("utf-8"),
-                                "metadata": {
-                                    "src_video_url": video_url,
-                                    "chunk_number": chunk_number,
-                                    "format": "fragmented_mp4",
-                                    "audio_sample_rate": 24000,
-                                    "commentary_length_bytes": len(audio_pcm),
-                                    "video_length_bytes": len(fragmented_video),
-                                    "base_chunks_combined": 2,
-                                    "total_duration_seconds": 8,
-                                },
-                            },
-                        }
-                    )
-
-                    if hasattr(ws, "send"):
-                        if asyncio.iscoroutinefunction(ws.send):
-                            await ws.send(message)
-                        else:
-                            await asyncio.to_thread(ws.send, message)
-                    else:
-                        await asyncio.to_thread(ws.send, message)
-
-                    logger.info(f"[Live Commentary] ✓ Sent chunk {chunk_number} with commentary")
-
-                except Exception as e:
-                    logger.error(f"[Live Commentary] Error processing chunk {chunk_number}: {e}", exc_info=True)
+                # Wait until we have 2 chunks to combine
+                if len(chunk_buffer) < 2:
                     continue
 
-            logger.info(f"[Live Commentary] Complete! Processed {chunk_number} chunks")
+                # Combine the two 4-second chunks into one 8-second chunk
+                chunk_number += 1
+                logger.info(
+                    f"[Live Commentary] Combining chunks into 8-second chunk {chunk_number}..."
+                )
+
+                combined_chunk = await concatenate_two_chunks(
+                    chunk_buffer[0], chunk_buffer[1]
+                )
+                chunk_buffer.clear()
+
+                logger.info(
+                    f"[Live Commentary] Combined chunk {chunk_number}: {len(combined_chunk):,} bytes"
+                )
+
+                # Process the combined 8-second chunk through the full pipeline
+                await process_combined_chunk(combined_chunk, chunk_number, live_client)
+
+            logger.info(
+                f"[Live Commentary] Pipeline complete! Processed {chunk_number} total chunks"
+            )
 
         except Exception as e:
-            logger.error(f"[Live Commentary] Error: {e}", exc_info=True)
+            logger.error(f"[Live Commentary] Pipeline error: {e}", exc_info=True)
         finally:
             # Clean up Live API connection
             if live_client:
                 try:
                     await live_client.disconnect()
-                    logger.info("[Live Commentary] Disconnected")
+                    logger.info("[Live Commentary] Disconnected from Live API")
                 except Exception as e:
                     logger.error(f"[Live Commentary] Error disconnecting: {e}")
 
