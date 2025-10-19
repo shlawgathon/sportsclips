@@ -185,7 +185,7 @@ struct CommentRowView: View {
                 .fill(Color.blue.gradient)
                 .frame(width: 36, height: 36)
                 .overlay(
-                    Text(String(comment.userId.prefix(1)).uppercased())
+                    Text(String(item.comment.userId.prefix(1)).uppercased())
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
                 )
@@ -193,19 +193,19 @@ struct CommentRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Username and timestamp
                 HStack {
-                    Text(postedByUsername)
+                    Text(item.postedByUsername)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
 
                     Spacer()
 
-                    Text(formatTimestamp(comment.createdAt))
+                    Text(formatTimestamp(item.comment.createdAt))
                         .font(.system(size: 12))
                         .foregroundColor(.gray)
                 }
 
                 // Comment text
-                Text(comment.text)
+                Text(item.comment.text)
                     .font(.system(size: 14))
                     .foregroundColor(.white)
                     .fixedSize(horizontal: false, vertical: true)
