@@ -22,6 +22,7 @@ class VideoPlayerManager: ObservableObject {
     // Enhanced visibility monitoring
     private var visibleVideoIds: Set<String> = []
     private var playerObservers: [String: NSKeyValueObservation] = [:]
+    private var timeObservers: [String: Any] = [:]
 
     private init() {
         configureAudioSession()
@@ -97,7 +98,7 @@ class VideoPlayerManager: ObservableObject {
     }
     
     // MARK: - Player Observers Setup
-    private func setupPlayerObservers(for player: AVPlayer, videoId: String) {
+    private func setupPlayerObservers(for player: AVPlayer, videoId: String, videoURL: String) {
         // Observe player item status for better auto-play handling
         let observer = player.observe(\.currentItem?.status, options: [.new]) { [weak self] player, _ in
             guard let self = self else { return }
@@ -139,6 +140,36 @@ class VideoPlayerManager: ObservableObject {
                 }
             }
         }
+        
+        // Add periodic time observer for duration-based replay
+        let timeObserver = player.addPeriodicTimeObserver(forInterval: CMTimeMakeWithSeconds(0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
+            guard let self = self else { return }
+            
+            // Check if video has reached its duration (within 0.5 seconds)
+            let currentTime = CMTimeGetSeconds(time)
+            let duration = self.getDuration(for: videoURL, videoId: videoId)
+            
+            if duration > 0 && currentTime >= duration - 0.5 {
+                Task { @MainActor in
+                    if self.visibleVideoIds.contains(videoId) {
+                        print("🎬 Duration-based replay triggered for video: \(videoId) at \(currentTime)/\(duration)")
+                        // Trigger replay
+                        player.seek(to: .zero) { [weak self] completed in
+                            guard let self = self, completed else { return }
+                            Task { @MainActor in
+                                if self.visibleVideoIds.contains(videoId) {
+                                    player.play()
+                                    print("🎬 Duration-based loop started for video: \(videoId)")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Store time observer for cleanup
+        timeObservers[videoId] = timeObserver
     }
     
     func forceStopAllPlayback() {
@@ -162,11 +193,33 @@ class VideoPlayerManager: ObservableObject {
         playerObservers.values.forEach { $0.invalidate() }
         playerObservers.removeAll()
         
+        // Remove all time observers
+        for (videoId, timeObserver) in timeObservers {
+            if let player = players[videoId] {
+                player.removeTimeObserver(timeObserver)
+            }
+        }
+        timeObservers.removeAll()
+        
         // Remove notification observers
         NotificationCenter.default.removeObserver(self)
         
         // Clear visibility tracking
         visibleVideoIds.removeAll()
+    }
+    
+    private func cleanupObservers(for videoId: String) {
+        // Remove KVO observer for this video
+        if let observer = playerObservers[videoId] {
+            observer.invalidate()
+            playerObservers.removeValue(forKey: videoId)
+        }
+        
+        // Remove time observer for this video
+        if let timeObserver = timeObservers[videoId], let player = players[videoId] {
+            player.removeTimeObserver(timeObserver)
+            timeObservers.removeValue(forKey: videoId)
+        }
     }
 
     public func ensureAudioSessionActive() {
@@ -291,7 +344,7 @@ class VideoPlayerManager: ObservableObject {
         }
         
         // Add notification observers for enhanced auto-play functionality
-        setupPlayerObservers(for: player, videoId: videoId)
+        setupPlayerObservers(for: player, videoId: videoId, videoURL: videoURL)
         
         return player
     }
@@ -579,6 +632,24 @@ class VideoPlayerManager: ObservableObject {
             return max(0, min(time, duration))
         }
         return max(0, time) // If duration unknown, just ensure non-negative
+    }
+    
+    func triggerReplay(for videoURL: String, videoId: String) {
+        guard let player = players[videoId] else {
+            print("🎬 Replay failed: No player found for \(videoId)")
+            return
+        }
+        
+        print("🎬 Manually triggering replay for video: \(videoId)")
+        player.seek(to: .zero) { [weak self] completed in
+            guard let self = self, completed else { return }
+            Task { @MainActor in
+                if self.visibleVideoIds.contains(videoId) {
+                    player.play()
+                    print("🎬 Manual replay started for video: \(videoId)")
+                }
+            }
+        }
     }
 
     func cleanup() {
