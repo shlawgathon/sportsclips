@@ -93,12 +93,21 @@ final class APIClient {
         req.httpMethod = method
         if let body = body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONEncoder().encode(AnyEncodable(body))
+            let encoded = try JSONEncoder().encode(AnyEncodable(body))
+            req.httpBody = encoded
+            print("[APIClient][DEBUG] Request: \(method) \(url.absoluteString) bodyBytes=\(encoded.count)")
+        } else {
+            print("[APIClient][DEBUG] Request: \(method) \(url.absoluteString)")
         }
+        let started = Date()
         let (data, resp) = try await session.data(for: req)
+        let elapsed = Date().timeIntervalSince(started)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        print("[APIClient][DEBUG] Response: status=\(http.statusCode) bytes=\(data.count) durationMs=\(Int(elapsed*1000)) url=\(url.absoluteString)")
         guard (200..<300).contains(http.statusCode) else {
-            throw NSError(domain: "API", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"])
+            let bodyText = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+            print("[APIClient][ERROR] HTTP \(http.statusCode) url=\(url.absoluteString) body=\(bodyText)")
+            throw NSError(domain: "API", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: bodyText])
         }
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -108,7 +117,12 @@ final class APIClient {
         url.append(path: path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         var req = URLRequest(url: url)
         req.httpMethod = method
-        let (_, resp) = try await session.data(for: req)
+        print("[APIClient][DEBUG] Request: \(method) \(url.absoluteString) (no body)")
+        let started = Date()
+        let (data, resp) = try await session.data(for: req)
+        let elapsed = Date().timeIntervalSince(started)
+        guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        print("[APIClient][DEBUG] Response: status=\(http.statusCode) bytes=\(data.count) durationMs=\(Int(elapsed*1000)) url=\(url.absoluteString)")
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
@@ -189,7 +203,9 @@ final class APIClient {
     }
 
     func listLives() async throws -> [LiveListItem] {
-        try await request("/live", response: [LiveListItem].self)
+        // Route fix: server exposes /live-videos, not /live
+        print("[APIClient][DEBUG] listLives() -> GET /live-videos")
+        return try await request("/live-videos", response: [LiveListItem].self)
     }
 
     func listLiveVideos() async throws -> [LiveListItem] {
@@ -269,12 +285,21 @@ final class APIClient {
         req.httpMethod = method
         if let body = body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONEncoder().encode(AnyEncodable(body))
+            let encoded = try JSONEncoder().encode(AnyEncodable(body))
+            req.httpBody = encoded
+            print("[APIClient][DEBUG] Request: \(method) \(url.absoluteString) bodyBytes=\(encoded.count)")
+        } else {
+            print("[APIClient][DEBUG] Request: \(method) \(url.absoluteString)")
         }
+        let started = Date()
         let (data, resp) = try await session.data(for: req)
+        let elapsed = Date().timeIntervalSince(started)
         guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        print("[APIClient][DEBUG] Response: status=\(http.statusCode) bytes=\(data.count) durationMs=\(Int(elapsed*1000)) url=\(url.absoluteString)")
         guard (200..<300).contains(http.statusCode) else {
-            throw NSError(domain: "API", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"])
+            let bodyText = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+            print("[APIClient][ERROR] HTTP \(http.statusCode) url=\(url.absoluteString) body=\(bodyText)")
+            throw NSError(domain: "API", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: bodyText])
         }
         return try JSONDecoder().decode(T.self, from: data)
     }

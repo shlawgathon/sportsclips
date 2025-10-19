@@ -236,20 +236,21 @@ fun Route.liveVideoRoutes() {
     webSocket("/ws/live-video") {
         val app = call.application
         val log = app.log
+        val connId = UUID.randomUUID().toString().substring(0, 8)
         val videoUrl = call.request.queryParameters["video_url"]
         val isLiveParam = call.request.queryParameters["is_live"]
         if (videoUrl.isNullOrBlank() || isLiveParam.isNullOrBlank()) {
             val url = videoUrl ?: ""
             val errJson = """{"type":"error","message":"Missing required parameters","metadata":{"src_video_url":"$url"}}"""
-            log.warn("[LiveVideoWS] reject connection: missing params videoUrl='$url' isLiveParam='$isLiveParam'")
+            log.warn("[LiveVideoWS][conn=$connId] reject connection: missing params videoUrl='$url' isLiveParam='$isLiveParam'")
             send(Frame.Text(errJson))
             close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "missing params"))
             return@webSocket
         }
         val isLive = isLiveParam.equals("true", ignoreCase = true)
-        log.info("[LiveVideoWS] Client connected videoUrl=$videoUrl isLive=$isLive")
+        log.info("[LiveVideoWS][conn=$connId] Client connected videoUrl=$videoUrl isLive=$isLive")
         val stream = LiveStreamCache.acquire(app, videoUrl, isLive)
-        log.info("[LiveVideoWS] acquired stream url=$videoUrl isLive=$isLive")
+        log.info("[LiveVideoWS][conn=$connId] acquired stream url=$videoUrl isLive=$isLive")
         var totalSent = 0
         val sendJob = launch {
             var sent = 0
@@ -262,10 +263,10 @@ fun Route.liveVideoRoutes() {
                     sent++
                     totalSent++
                     if (sent % 10 == 0) {
-                        log.debug("[LiveVideoWS] sent=$sent total=$totalSent videoUrl=$videoUrl")
+                        log.debug("[LiveVideoWS][conn=$connId] sent=$sent total=$totalSent videoUrl=$videoUrl")
                     }
                 } catch (t: Throwable) {
-                    log.debug("[LiveVideoWS] send failed: ${t.message}")
+                    log.debug("[LiveVideoWS][conn=$connId] send failed: ${t.message}")
                 }
             }
         }
@@ -277,7 +278,7 @@ fun Route.liveVideoRoutes() {
         } finally {
             sendJob.cancel()
             LiveStreamCache.release(app, stream)
-            log.info("[LiveVideoWS] client disconnected url=$videoUrl isLive=$isLive totalSent=$totalSent")
+            log.info("[LiveVideoWS][conn=$connId] client disconnected url=$videoUrl isLive=$isLive totalSent=$totalSent")
             try { close() } catch (_: Exception) {}
         }
     }

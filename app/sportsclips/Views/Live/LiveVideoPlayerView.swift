@@ -85,6 +85,7 @@ struct LiveVideoPlayerView: View {
 
     private func setupPlayer() {
         if let gid = video.gameId, !gid.isEmpty {
+            print("[LiveVideoPlayerView][DEBUG] setupPlayer live gid=\(gid)")
             // Live stream path using YouTube source URL from gameId
             queuePlayer = AVQueuePlayer()
             isLivePlaying = false
@@ -92,6 +93,7 @@ struct LiveVideoPlayerView: View {
             liveBufferMap.removeAll()
             connectLive()
         } else {
+            print("[LiveVideoPlayerView][DEBUG] setupPlayer VOD id=\(video.id)")
             // Use async variant to fetch presigned URL when video.videoURL is empty
             Task {
                 let p = await playerManager.getPlayer(for: video)
@@ -104,6 +106,7 @@ struct LiveVideoPlayerView: View {
     private func connectLive() {
         guard let gameId = video.gameId, !gameId.isEmpty else { return }
         let sourceUrl = "https://www.youtube.com/watch?v=\(gameId)"
+        print("[LiveVideoPlayerView][DEBUG] connectLive gameId=\(gameId) src=\(sourceUrl)")
         // Start polling for chunk references and enqueue by order
         livePollTask?.cancel()
         livePollTask = Task { [sourceUrl] in
@@ -111,12 +114,14 @@ struct LiveVideoPlayerView: View {
             while !Task.isCancelled {
                 let chunks = await liveService.pollLiveChunks(streamUrl: sourceUrl, afterChunk: lastChunk, limit: 3)
                 if !chunks.isEmpty {
+                    print("[LiveVideoPlayerView][DEBUG] polled chunks count=\(chunks.count) lastChunkBefore=\(lastChunk)")
                     for ch in chunks {
                         if let url = URL(string: ch.url) {
                             liveBufferMap[ch.chunkNumber] = url
                             lastChunk = max(lastChunk, ch.chunkNumber)
                         }
                     }
+                    print("[LiveVideoPlayerView][DEBUG] bufferSize=\(liveBufferMap.count) lastChunkAfter=\(lastChunk)")
                     flushContiguousChunksToQueue(minInitialBuffer: 2)
                 }
                 try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
@@ -140,13 +145,18 @@ struct LiveVideoPlayerView: View {
             liveBufferMap.removeValue(forKey: nextExpectedChunk)
             nextExpectedChunk += 1
         }
+        if enqueued > 0 {
+            print("[LiveVideoPlayerView][DEBUG] flush enqueued=\(enqueued) nextExpected=\(nextExpectedChunk) bufferLeft=\(liveBufferMap.count) playing=\(isLivePlaying)")
+        }
         if !isLivePlaying && enqueued >= minInitialBuffer {
             isLivePlaying = true
+            print("[LiveVideoPlayerView][DEBUG] starting playback with minBuffer=\(minInitialBuffer)")
             queuePlayer?.play()
         }
     }
 
     private func disconnectLive() {
+        print("[LiveVideoPlayerView][DEBUG] disconnectLive id=\(video.id) nextExpected=\(nextExpectedChunk) buffer=\(liveBufferMap.count)")
         livePollTask?.cancel()
         livePollTask = nil
         queuePlayer?.pause()
