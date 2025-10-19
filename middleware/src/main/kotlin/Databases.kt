@@ -127,17 +127,22 @@ fun Application.configureDatabases()
                                                                 sourceUrl = sourceUrl,
                                                                 isLive = true,
                                                                 onSnippet = { bytes, clipTitle, description ->
+                                                                    val sz = bytes.size
+                                                                    log.info("[YT-INGEST] onSnippet start videoId=$videoId bytes=$sz title='${clipTitle ?: title}' descLen=${description?.length ?: 0}")
                                                                     val key =
                                                                         "clips/$videoId/${System.currentTimeMillis()}.mp4"
                                                                     try
                                                                     {
+                                                                        log.debug("[YT-INGEST] Uploading to S3 key=$key size=$sz")
                                                                         s3u.uploadBytes(
                                                                             bytes,
                                                                             key,
                                                                             contentType = "video/mp4"
                                                                         )
+                                                                        log.info("[YT-INGEST] S3 upload success key=$key size=$sz")
                                                                     } catch (thing: Exception)
                                                                     {
+                                                                        log.warn("[YT-INGEST] S3 upload failed key=$key reason=${thing.message}", thing)
                                                                         thing.printStackTrace()
                                                                     }
                                                                     val text = listOfNotNull(
@@ -146,22 +151,28 @@ fun Application.configureDatabases()
                                                                     ).joinToString("\n")
                                                                     val embedding = if (text.isNotBlank()) try
                                                                     {
+                                                                        log.debug("[YT-INGEST] Embedding text for videoId=$videoId len=${text.length}")
                                                                         voyage.embed(text)
                                                                     } catch (e: Exception)
                                                                     {
-                                                                        e.printStackTrace(); null
+                                                                        log.warn("[YT-INGEST] Embedding failed videoId=$videoId reason=${e.message}", e); null
                                                                     } else null
-                                                                    clipService.create(
-                                                                        Clip(
-                                                                            s3Key = key,
-                                                                            title = clipTitle ?: title,
-                                                                            description = description ?: "",
-                                                                            gameId = videoId,
-                                                                            sport = sp,
-                                                                            embedding = embedding
+                                                                    try {
+                                                                        clipService.create(
+                                                                            Clip(
+                                                                                s3Key = key,
+                                                                                title = clipTitle ?: title,
+                                                                                description = description ?: "",
+                                                                                gameId = videoId,
+                                                                                sport = sp,
+                                                                                embedding = embedding
+                                                                            )
                                                                         )
-                                                                    )
-                                                                    created++
+                                                                        created++
+                                                                        log.info("[YT-INGEST] Clip created videoId=$videoId key=$key createdCount=$created")
+                                                                    } catch (e: Exception) {
+                                                                        log.error("[YT-INGEST] Clip create failed videoId=$videoId key=$key reason=${e.message}", e)
+                                                                    }
                                                                 }
                                                             )
                                                             trackedVideoService.setStatus(

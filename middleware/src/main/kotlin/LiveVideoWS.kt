@@ -65,6 +65,8 @@ private object LiveStreamCache {
                     sourceUrl = stream.url,
                     isLive = stream.isLive,
                     onSnippet = { bytes, title, description ->
+                        val sz = bytes.size
+                        app.log.info("[LiveStreamCache] onSnippet url=${stream.url} bytes=$sz title='${title ?: ""}' descLen=${description?.length ?: 0}")
                         val b64 = Base64.getEncoder().encodeToString(bytes)
                         val titleEsc = title?.replace("\"", "\\\"")
                         val descEsc = description?.replace("\"", "\\\"")
@@ -89,9 +91,14 @@ private object LiveStreamCache {
                             append("}}")
                             append("}")
                         }
-                        stream.flow.tryEmit(msg)
+                        val emitted = stream.flow.tryEmit(msg)
+                        if (!emitted) {
+                            app.log.warn("[LiveStreamCache] onSnippet drop url=${stream.url} bytes=$sz (buffer full)")
+                        }
                     },
                     onLiveChunk = { bytes, meta ->
+                        val sz = bytes.size
+                        app.log.info("[LiveStreamCache] onLiveChunk url=${stream.url} chunk=${meta.chunk_number} bytes=$sz fmt=${meta.format} sr=${meta.audio_sample_rate} n=${meta.num_chunks_processed}")
                         val b64 = Base64.getEncoder().encodeToString(bytes)
                         val msg = """
                         {
@@ -110,7 +117,10 @@ private object LiveStreamCache {
                           }
                         }
                         """.trimIndent()
-                        stream.flow.tryEmit(msg)
+                        val emitted = stream.flow.tryEmit(msg)
+                        if (!emitted) {
+                            app.log.warn("[LiveStreamCache] onLiveChunk drop url=${stream.url} chunk=${meta.chunk_number} bytes=$sz (buffer full)")
+                        }
                     }
                 )
             } catch (t: Throwable) {
@@ -139,11 +149,17 @@ fun Route.liveVideoRoutes() {
             return@webSocket
         }
         val isLive = isLiveParam.equals("true", ignoreCase = true)
+        log.info("[LiveVideoWS] Client connected videoUrl=$videoUrl isLive=$isLive")
         val stream = LiveStreamCache.acquire(app, videoUrl, isLive)
         val sendJob = launch {
+            var sent = 0
             stream.flow.collectLatest { json ->
                 try {
                     send(Frame.Text(json))
+                    sent++
+                    if (sent % 10 == 0) {
+                        log.debug("[LiveVideoWS] sent=$sent videoUrl=$videoUrl")
+                    }
                 } catch (t: Throwable) {
                     log.debug("[LiveVideoWS] send failed: ${t.message}")
                 }

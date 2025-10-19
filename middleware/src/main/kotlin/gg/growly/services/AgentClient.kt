@@ -145,36 +145,6 @@ class AgentClient(application: Application) {
                                         log.warn("[AgentClient] error message from agent: ${msg ?: "<none>"}")
                                         break
                                     }
-                                    "live_commentary_chunk" -> {
-                                        // Counts as a response too
-                                        releaseGateIfNeeded()
-                                        val data = element.jsonObject["data"] as? JsonElement
-                                        if (data == null) {
-                                            log.warn("[AgentClient] 'live_commentary_chunk' missing 'data' field: $txt")
-                                        } else {
-                                            val base64 = data.jsonObject["video_data"]?.jsonPrimitive?.content
-                                            val metaObj = data.jsonObject["metadata"]?.jsonObject
-                                            if (base64 == null || metaObj == null) {
-                                                log.warn("[AgentClient] live_commentary_chunk missing fields")
-                                            } else {
-                                                try {
-                                                    val meta = LiveChunkMeta(
-                                                        src_video_url = metaObj["src_video_url"]?.jsonPrimitive?.content ?: sourceUrl,
-                                                        chunk_number = metaObj["chunk_number"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
-                                                        format = metaObj["format"]?.jsonPrimitive?.content ?: "",
-                                                        audio_sample_rate = metaObj["audio_sample_rate"]?.jsonPrimitive?.content?.toIntOrNull() ?: 24000,
-                                                        commentary_length_bytes = metaObj["commentary_length_bytes"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
-                                                        video_length_bytes = metaObj["video_length_bytes"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L,
-                                                        num_chunks_processed = metaObj["num_chunks_processed"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
-                                                    )
-                                                    val bytes = Base64.getDecoder().decode(base64)
-                                                    onLiveChunk(bytes, meta)
-                                                } catch (t: Throwable) {
-                                                    log.warn("[AgentClient] Failed to parse live_commentary_chunk meta: ${t.message}")
-                                                }
-                                            }
-                                        }
-                                    }
                                     else -> {
                                         // Unknown message still counts as a response; release once.
                                         releaseGateIfNeeded()
