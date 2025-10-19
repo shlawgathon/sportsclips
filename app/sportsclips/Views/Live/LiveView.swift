@@ -255,7 +255,10 @@ struct LiveView: View {
                                 .id(index)
                                     .onAppear {
                                         currentIndex = index
-                                        playerManager.playVideo(for: video.videoURL, videoId: video.id)
+                                        // Do not attempt URL-based playback for live items; LiveVideoPlayerView handles WebSocket streaming
+                                        if (video.gameId == nil) || (video.gameId?.isEmpty == true) {
+                                            playerManager.playVideo(for: video.videoURL, videoId: video.id)
+                                        }
                                         localStorage.recordView(videoId: video.id)
 
                                         if index >= filteredVideos.count - 2 {
@@ -375,10 +378,12 @@ struct LiveView: View {
                     }
                     self.isLoading = false
 
-                    // Auto-play first video
-                    if !filteredVideos.isEmpty {
-                        playerManager.playVideo(for: filteredVideos[0].videoURL, videoId: filteredVideos[0].id)
-                        localStorage.recordView(videoId: filteredVideos[0].id)
+                    // Auto-play first video (non-live only; live playback handled in LiveVideoPlayerView)
+                    if let first = filteredVideos.first {
+                        if (first.gameId == nil) || (first.gameId?.isEmpty == true) {
+                            playerManager.playVideo(for: first.videoURL, videoId: first.id)
+                        }
+                        localStorage.recordView(videoId: first.id)
                     }
                 }
             } catch {

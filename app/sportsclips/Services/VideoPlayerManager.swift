@@ -102,6 +102,11 @@ class VideoPlayerManager: ObservableObject {
     }
 
     func playVideo(for videoURL: String, videoId: String) {
+        // If URL is empty, this is likely a live item or not yet resolved; do not attempt playback
+        guard !videoURL.isEmpty else {
+            print("🎬 Skipping URL-based playback for: \(videoId) (empty URL)")
+            return
+        }
         // Pause all other videos first to save resources
         pauseAllVideosExcept(videoId: videoId)
 
