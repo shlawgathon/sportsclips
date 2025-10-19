@@ -17,7 +17,7 @@ from .prompt import CAPTION_HIGHLIGHT_PROMPT, CAPTION_HIGHLIGHT_TOOL
 logger = logging.getLogger(__name__)
 
 
-def _run_async(coro):
+def _run_async(coro: Any) -> Any:
     """
     Run async function in sync context.
 
@@ -187,4 +187,7 @@ def caption_highlight_step(
     logger.info("Running caption_highlight_step with Gemini LLM")
 
     captioner = _get_captioner()
-    return _run_async(captioner.generate_caption(video_data, metadata))
+    result: tuple[str, str, dict[str, Any]] = _run_async(
+        captioner.generate_caption(video_data, metadata)
+    )
+    return result

@@ -2,7 +2,7 @@
 Prompts and tool schemas for highlight trimming.
 """
 
-import google.generativeai as genai
+from google.genai import types
 
 TRIM_HIGHLIGHT_PROMPT = """Analyze this video clip which contains a highlight moment. Your task is to identify the exact portion of the video that should be kept.
 
@@ -20,24 +20,24 @@ Identify which consecutive segments contain the actual highlight action. Include
 Use the report_trim_segments function to specify which segments to keep."""
 
 # Tool/function declaration for highlight trimming
-TRIM_HIGHLIGHT_TOOL = genai.protos.Tool(
+TRIM_HIGHLIGHT_TOOL = types.Tool(
     function_declarations=[
-        genai.protos.FunctionDeclaration(
+        types.FunctionDeclaration(
             name="report_trim_segments",
             description="Report which video segments should be kept for the highlight",
-            parameters=genai.protos.Schema(
-                type=genai.protos.Type.OBJECT,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
                 properties={
-                    "start_segment": genai.protos.Schema(
-                        type=genai.protos.Type.INTEGER,
+                    "start_segment": types.Schema(
+                        type=types.Type.INTEGER,
                         description="Starting segment number (1-7, inclusive)",
                     ),
-                    "end_segment": genai.protos.Schema(
-                        type=genai.protos.Type.INTEGER,
+                    "end_segment": types.Schema(
+                        type=types.Type.INTEGER,
                         description="Ending segment number (1-7, inclusive)",
                     ),
-                    "reasoning": genai.protos.Schema(
-                        type=genai.protos.Type.STRING,
+                    "reasoning": types.Schema(
+                        type=types.Type.STRING,
                         description="Brief explanation of why these segments were selected",
                     ),
                 },
